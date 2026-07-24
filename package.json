@@ -1,0 +1,22 @@
+{
+  "name": "@edgevector/search",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "search": "./bin/search"
+  },
+  "exports": {
+    ".": "./src/engine.ts",
+    "./paths": "./src/paths.ts",
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "ci": "bash .lastgit/ci.sh"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}
