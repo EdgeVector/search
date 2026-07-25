@@ -8,8 +8,8 @@
  *   search status
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { resolve, join } from "node:path";
 import { openSearchEngine } from "./engine.ts";
 import { drainInbox } from "./inbox.ts";
 import { ensureSearchDirs, resolveSearchPaths } from "./paths.ts";
@@ -20,6 +20,7 @@ function usage(): never {
   search drain [--last-db-home DIR]
   search query <text> [--k N] [--schema S]... [--json] [--last-db-home DIR]
   search apply --file <batch.json> [--last-db-home DIR]
+  search rebuild --batches-dir DIR [--last-db-home DIR]
   search status [--last-db-home DIR]
 `);
   process.exit(2);
@@ -32,6 +33,7 @@ function parseArgs(argv: string[]) {
   const rest = args.slice(1);
   let lastDbHome: string | undefined;
   let file: string | undefined;
+  let batchesDir: string | undefined;
   let k = 20;
   let json = false;
   const schemas: string[] = [];
@@ -42,6 +44,8 @@ function parseArgs(argv: string[]) {
       lastDbHome = rest[++i];
     } else if (a === "--file") {
       file = rest[++i];
+    } else if (a === "--batches-dir") {
+      batchesDir = rest[++i];
     } else if (a === "--k" || a === "-k") {
       k = Number(rest[++i]);
     } else if (a === "--schema") {
@@ -55,7 +59,7 @@ function parseArgs(argv: string[]) {
       positionals.push(a);
     }
   }
-  return { cmd, lastDbHome, file, k, json, schemas, positionals };
+  return { cmd, lastDbHome, file, batchesDir, k, json, schemas, positionals };
 }
 
 function main(): void {
@@ -69,10 +73,37 @@ function main(): void {
       home: paths.home,
       inbox: paths.inbox,
       indexDir: paths.indexDir,
+      lastStoreDir: paths.lastStoreDir,
       docs: engine.size,
-      plane: "search-app-keyword-v1",
+      backend: engine.backend,
+      plane: "search-app-keyword-v1-laststore",
     };
     console.log(JSON.stringify(body, null, 2));
+    return;
+  }
+
+  if (opts.cmd === "rebuild") {
+    if (!opts.batchesDir) {
+      console.error("search rebuild requires --batches-dir");
+      process.exit(2);
+    }
+    const files = readdirSync(opts.batchesDir)
+      .filter((f) => f.endsWith(".json"))
+      .sort();
+    const batches: IndexChangeBatch[] = files.map((f) =>
+      JSON.parse(
+        readFileSync(join(opts.batchesDir!, f), "utf8"),
+      ) as IndexChangeBatch,
+    );
+    const report = engine.rebuildFromBatches(batches, true);
+    console.log(
+      JSON.stringify({
+        ok: true,
+        backend: engine.backend,
+        lastStoreDir: paths.lastStoreDir,
+        ...report,
+      }),
+    );
     return;
   }
 

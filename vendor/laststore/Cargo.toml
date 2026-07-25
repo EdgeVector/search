@@ -1,0 +1,26 @@
+[package]
+name = "laststore"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Last Store — multi-collection local document store (segment files, group-commit, real compact)"
+license = "MIT OR Apache-2.0"
+repository = "lastdb:///laststore"
+readme = "README.md"
+keywords = ["database", "embedded", "document-store", "segments", "last-db"]
+categories = ["database-implementations", "filesystem"]
+exclude = ["target/", ".git/"]
+
+[dependencies]
+aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rustix = { version = "1", features = ["fs"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
