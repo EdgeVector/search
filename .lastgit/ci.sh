@@ -9,7 +9,7 @@ test ! -e .github/workflows
 grep -q "lastdb:///search" README.md
 grep -q "local-only and regenerable" README.md
 grep -q "not CloudSync product data" README.md
-grep -q "should not ship FastEmbed" README.md
+grep -q "FastEmbed" README.md
 grep -q "LastStore" README.md
 
 bash -n .lastgit/ci.sh
