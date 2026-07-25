@@ -2,11 +2,11 @@
 
 First-party embedded index app for LastDB (`lastdb:///search`).
 
-Search owns local semantic and **keyword** indexing for Brain, F-Kanban, and
-other EdgeVector apps. The LastDB kernel should keep thin contracts for durable
-records, change notification, index sinks, and grant-scoped query routing; it
-**should not ship FastEmbed**, ONNX, model weights, or vector-index internals in
-the default `lastdbd` binary.
+Search owns local **keyword** indexing for Brain, F-Kanban, and other EdgeVector
+apps. The LastDB kernel keeps thin contracts for durable records, change
+notification, index sinks, and grant-scoped query routing; it **should not ship
+FastEmbed**, ONNX, model weights, or vector-index internals in the default
+`lastdbd` binary.
 
 ## Product Contract
 
@@ -14,25 +14,30 @@ the default `lastdbd` binary.
 - Search index data is **local-only and regenerable** from atoms, tips, and app
   text projections (`IndexChangeBatch` from the host).
 - Search index data is **not CloudSync product data**.
-- Search provides a shared node-mediated capability, not a per-app private
-  vector database.
-- Brain and F-Kanban migrate to this shared Search plane.
+- Durable index state is stored via **LastStore** (segment document store), not
+  a single full-corpus JSON snapshot.
+- After cloud restore / cold home, run **rebuild** to regenerate the plane from
+  product data (or pre-emitted batches). Live mutations never run a full-corpus
+  walk on the write hot path.
 
 ## Layout (under Mini home)
 
 ```text
-{LASTDB_HOME}/apps/search/inbox/   # host-written IndexChangeBatch JSON files
-{LASTDB_HOME}/apps/search/index/   # regenerable keyword index snapshot
+{LASTDB_HOME}/apps/search/inbox/       # host-written IndexChangeBatch JSON
+{LASTDB_HOME}/apps/search/laststore/   # LastStore-backed keyword index (primary)
 ```
 
-Override with `SEARCH_HOME`, `SEARCH_INBOX`, `SEARCH_INDEX_DIR`.
+Override with `SEARCH_HOME`, `SEARCH_INBOX`, `SEARCH_LASTSTORE_DIR`,
+`SEARCH_STORE_BIN`.
 
 ## CLI
 
 ```bash
-search drain --last-db-home /path/to/ephemeral-home
-search query "distinctive text" --json --last-db-home /path/to/ephemeral-home
+cargo build -p search-store   # LastStore engine binary
+search drain --last-db-home /path/to/home
+search query "distinctive text" --json --last-db-home /path/to/home
 search apply --file batch.json --last-db-home ...
+search rebuild --batches-dir ./batches --last-db-home ...
 search status
 ```
 
@@ -42,12 +47,13 @@ search status
 
 ```ts
 import { openSearchEngine } from "@edgevector/search";
-import type { IndexChangeBatch } from "@edgevector/search/types";
 
 const eng = openSearchEngine(indexDir);
 eng.applyChangeBatch(batch);
-eng.persist();
-const hits = eng.search("needle", { k: 10, schemas: ["fbrain/Preference"] });
+eng.persist(); // LastStore already flushed on apply
+const hits = eng.search("needle", { k: 10 });
+// Cold restore:
+eng.rebuildFromBatches(batches, true);
 ```
 
 ## Validation
