@@ -36,4 +36,24 @@ export type SearchQueryOptions = {
   k?: number;
   /** Restrict to these schema names / identity hashes. */
   schemas?: string[];
+  /** Substring gate on hit text (native-parity). */
+  exact?: boolean;
+  /** Minimum similarity score (native-parity). */
+  min_score?: number;
+  /**
+   * Prefer semantic vector plane when healthy.
+   * Default true for product path; keyword fallback when false or degraded.
+   */
+  semantic?: boolean;
+};
+
+export type SemanticSearchHit = {
+  schema_name: string;
+  key_hash: string | null;
+  key_range: string | null;
+  fragment_key: string;
+  score: number;
+  text: string;
+  mutation_id?: string;
+  match_type: "semantic";
 };

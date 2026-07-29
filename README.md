@@ -2,11 +2,11 @@
 
 First-party embedded index app for LastDB (`lastdb:///search`).
 
-Search owns local **keyword** indexing for Brain, F-Kanban, and other EdgeVector
-apps. The LastDB kernel keeps thin contracts for durable records, change
-notification, index sinks, and grant-scoped query routing; it **should not ship
+Search owns local **keyword** and **semantic (vector)** indexing for Brain,
+F-Kanban, and other EdgeVector apps. The LastDB kernel keeps thin contracts for
+durable records, change notification, and index sinks; it **should not ship
 FastEmbed**, ONNX, model weights, or vector-index internals in the default
-`lastdbd` binary.
+`lastdbd` binary — those live here (Search), typically **all-MiniLM-L6-v2**.
 
 ## Product Contract
 
@@ -23,12 +23,13 @@ FastEmbed**, ONNX, model weights, or vector-index internals in the default
 ## Layout (under Mini home)
 
 ```text
-{LASTDB_HOME}/apps/search/inbox/       # host-written IndexChangeBatch JSON
-{LASTDB_HOME}/apps/search/laststore/   # LastStore-backed keyword index (primary)
+{LASTDB_HOME}/apps/search/inbox/              # host-written IndexChangeBatch JSON
+{LASTDB_HOME}/apps/search/laststore/          # LastStore-backed keyword index
+{LASTDB_HOME}/apps/search/vector-index.v1.json  # semantic vector snapshot
 ```
 
 Override with `SEARCH_HOME`, `SEARCH_INBOX`, `SEARCH_LASTSTORE_DIR`,
-`SEARCH_STORE_BIN`.
+`SEARCH_VECTOR_INDEX`, `SEARCH_STORE_BIN`, `SEARCH_EMBEDDER=deterministic|fastembed|auto`.
 
 ## CLI
 
@@ -36,12 +37,17 @@ Override with `SEARCH_HOME`, `SEARCH_INBOX`, `SEARCH_LASTSTORE_DIR`,
 cargo build -p search-store   # LastStore engine binary
 search drain --last-db-home /path/to/home
 search query "distinctive text" --json --last-db-home /path/to/home
+search semantic-query "meaning query" --schema <hash> --k 10 --json
 search apply --file batch.json --last-db-home ...
 search rebuild --batches-dir ./batches --last-db-home ...
+search online-backfill --last-db-home ...   # does NOT stop lastdbd
 search status
+search vector-status
 ```
 
-`query` drains the inbox first so host-delivered batches are visible.
+`query` / `semantic-query` drain the inbox first so host-delivered batches are visible.
+Semantic query supports native-parity knobs: `--schema` (repeatable, structural scope),
+`--k`, `--exact`, `--min-score`.
 
 ## Library
 
