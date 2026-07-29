@@ -72,10 +72,11 @@ export async function applyBatchBoth(
  */
 export async function onlineBackfill(
   session: SearchSession,
-  opts?: { maxDoneFiles?: number },
+  opts?: { maxDoneFiles?: number; maxKeywordDocs?: number },
 ): Promise<{
   drained_files: number;
   batches_replayed: number;
+  keyword_docs_reembedded: number;
   vectors: number;
   daemon_stop_required: false;
 }> {
@@ -92,7 +93,7 @@ export async function onlineBackfill(
   let batchesReplayed = 0;
   const doneDir = join(session.paths.inbox, "done");
   if (existsSync(doneDir)) {
-    const max = opts?.maxDoneFiles ?? 5000;
+    const max = opts?.maxDoneFiles ?? 50_000;
     const files = readdirSync(doneDir)
       .filter((f) => f.endsWith(".json"))
       .sort()
@@ -109,10 +110,49 @@ export async function onlineBackfill(
       }
     }
   }
+
+  // Primary product path: re-embed the durable keyword snapshot when present
+  // (full corpus text already materialized without exclusive store open).
+  let keywordDocs = 0;
+  const keywordSnap = join(session.paths.indexDir, "keyword-index.v1.json");
+  if (existsSync(keywordSnap)) {
+    try {
+      const snap = JSON.parse(readFileSync(keywordSnap, "utf8")) as {
+        docs?: Record<
+          string,
+          {
+            schema_name?: string;
+            key_hash?: string | null;
+            key_range?: string | null;
+            text?: string;
+            mutation_id?: string;
+          }
+        >;
+      };
+      const entries = Object.values(snap.docs ?? {});
+      const maxK = opts?.maxKeywordDocs ?? entries.length;
+      const slice = entries.slice(0, maxK);
+      keywordDocs = await session.semantic.indexPlainDocs(
+        slice
+          .filter((d) => d.schema_name && d.text)
+          .map((d) => ({
+            schema_name: d.schema_name!,
+            key_hash: d.key_hash ?? null,
+            key_range: d.key_range ?? null,
+            text: d.text!,
+            mutation_id: d.mutation_id,
+          })),
+      );
+    } catch {
+      /* keyword snap optional */
+    }
+  }
+
   const health = session.semantic.health();
   return {
     drained_files: drained.files,
     batches_replayed: batchesReplayed,
+    keyword_docs_reembedded: keywordDocs,
     vectors: health.vectors,
     daemon_stop_required: false,
   };
