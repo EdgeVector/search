@@ -17,6 +17,8 @@ export type SearchPaths = {
   inbox: string;
   indexDir: string;
   lastStoreDir: string;
+  /** Durable semantic vector snapshot (regenerable). */
+  vectorIndexPath: string;
 };
 
 export function resolveLastDbHome(): string {
@@ -41,6 +43,9 @@ export function resolveSearchPaths(opts?: {
       indexDir,
       lastStoreDir:
         process.env.SEARCH_LASTSTORE_DIR?.trim() || join(home, "laststore"),
+      vectorIndexPath:
+        process.env.SEARCH_VECTOR_INDEX?.trim() ||
+        join(home, "vector-index.v1.json"),
     };
   }
   const lastDb = opts?.lastDbHome || resolveLastDbHome();
@@ -52,6 +57,9 @@ export function resolveSearchPaths(opts?: {
     indexDir,
     lastStoreDir:
       process.env.SEARCH_LASTSTORE_DIR?.trim() || join(home, "laststore"),
+    vectorIndexPath:
+      process.env.SEARCH_VECTOR_INDEX?.trim() ||
+      join(home, "vector-index.v1.json"),
   };
 }
 
