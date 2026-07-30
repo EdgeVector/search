@@ -1,2 +1,4 @@
 target/
 .portal-worktree
+
+node_modules/

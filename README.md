@@ -61,6 +61,34 @@ everything.
 stays on **stdout**. Use `--quiet` or `SEARCH_PROGRESS=0` to silence the bar; set
 `SEARCH_PROGRESS=plain` for line-at-a-time logs (no TTY redraw).
 
+### Embedder (real MiniLM by default)
+
+Production default is a **real neural model**: `@xenova/transformers` pipeline
+`Xenova/all-MiniLM-L6-v2` (384-d, mean pool, L2-normalized) — same family as fold
+FastEmbed. Host-track post-install uses **`npm install`** so `sharp`'s native binary
+is built (bun alone often skips lifecycle scripts and breaks neural load).
+
+```bash
+# default: real model
+search init --force          # re-embed corpus after switching embedders
+
+# tests / offline CI only
+SEARCH_EMBEDDER=deterministic bun test
+```
+
+Env:
+
+| Variable | Meaning |
+|----------|---------|
+| `SEARCH_EMBEDDER=fastembed` | **default** — real MiniLM; fails loudly if model/package missing |
+| `SEARCH_EMBEDDER=auto` | try neural; set `SEARCH_ALLOW_DETERMINISTIC=1` to allow hash fallback |
+| `SEARCH_EMBEDDER=deterministic` | tests only — not production quality |
+| `TRANSFORMERS_CACHE` | optional ONNX model cache dir |
+
+After changing embedder, vectors use a different `embedder_id`, so resume skip will
+not match deterministic rows — re-run `search init --force` (or plain `init` after
+deleting the old index) to rebuild the neural plane.
+
 `query` / `semantic-query` drain the inbox first so host-delivered batches are visible.
 Semantic query supports native-parity knobs: `--schema` (repeatable, structural scope),
 `--k`, `--exact`, `--min-score`.
@@ -75,8 +103,8 @@ host-track refresh search
 ```
 
 That materializes a version under `~/.host-track/apps/search/`, runs
-`bin/search-host-track-post-install` (bun install + `cargo build --release -p search-store`),
-and links:
+`bin/search-host-track-post-install` (`npm install` for MiniLM/sharp +
+`cargo build --release -p search-store`), and links:
 
 | Binary | PATH |
 |--------|------|
