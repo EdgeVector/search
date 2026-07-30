@@ -56,6 +56,32 @@ restore; use `online-backfill` when you only want the re-embed step by name.
 Semantic query supports native-parity knobs: `--schema` (repeatable, structural scope),
 `--k`, `--exact`, `--min-score`.
 
+### Host-track / PATH install
+
+Search is a **local-safe** host-track app (`lastdb:///search`). Refresh:
+
+```bash
+host-track refresh search
+# or: last-stack-safe-upgrade-cli search
+```
+
+That materializes a version under `~/.host-track/apps/search/`, runs
+`bin/search-host-track-post-install` (bun install + `cargo build --release -p search-store`),
+and links:
+
+| Binary | PATH |
+|--------|------|
+| `search` | `~/.local/bin/search` |
+| `search-store` | `~/.local/bin/search-store` |
+
+Cold product rebuild (no remutation) still needs Mini's offline emit:
+
+```bash
+# stop lastdbd for that home first
+lastdb --data-dir "$HOME_OR_RESTORE" search-rebuild --json
+search drain --last-db-home "$HOME_OR_RESTORE"
+```
+
 ## Library
 
 ```ts
