@@ -3,20 +3,20 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 /**
- * Resolve Search data roots.
+ * Resolve Search data roots (semantic-only).
  *
  * Default layout under a LastDB Mini home:
- *   {LASTDB_HOME}/apps/search/inbox/       — IndexChangeBatch JSON files from the host
- *   {LASTDB_HOME}/apps/search/laststore/   — LastStore-backed keyword index (primary)
- *   {LASTDB_HOME}/apps/search/index/       — logical index dir (engine maps to laststore)
+ *   {LASTDB_HOME}/apps/search/inbox/              — IndexChangeBatch JSON from host
+ *   {LASTDB_HOME}/apps/search/vector-index.v1.json — MiniLM vector snapshot
+ *   {LASTDB_HOME}/apps/search/index/              — optional text snapshot for re-embed
  *
- * Override with SEARCH_HOME, SEARCH_INBOX, SEARCH_INDEX_DIR, SEARCH_LASTSTORE_DIR.
+ * Override with SEARCH_HOME, SEARCH_INBOX, SEARCH_INDEX_DIR, SEARCH_VECTOR_INDEX.
  */
 export type SearchPaths = {
   home: string;
   inbox: string;
+  /** Optional legacy text snapshot dir (keyword-index.v1.json may live here). */
   indexDir: string;
-  lastStoreDir: string;
   /** Durable semantic vector snapshot (regenerable). */
   vectorIndexPath: string;
 };
@@ -41,8 +41,6 @@ export function resolveSearchPaths(opts?: {
       home,
       inbox: process.env.SEARCH_INBOX?.trim() || join(home, "inbox"),
       indexDir,
-      lastStoreDir:
-        process.env.SEARCH_LASTSTORE_DIR?.trim() || join(home, "laststore"),
       vectorIndexPath:
         process.env.SEARCH_VECTOR_INDEX?.trim() ||
         join(home, "vector-index.v1.json"),
@@ -55,8 +53,6 @@ export function resolveSearchPaths(opts?: {
     home,
     inbox: process.env.SEARCH_INBOX?.trim() || join(home, "inbox"),
     indexDir,
-    lastStoreDir:
-      process.env.SEARCH_LASTSTORE_DIR?.trim() || join(home, "laststore"),
     vectorIndexPath:
       process.env.SEARCH_VECTOR_INDEX?.trim() ||
       join(home, "vector-index.v1.json"),
@@ -64,7 +60,7 @@ export function resolveSearchPaths(opts?: {
 }
 
 export function ensureSearchDirs(paths: SearchPaths): void {
-  for (const d of [paths.home, paths.inbox, paths.indexDir, paths.lastStoreDir]) {
+  for (const d of [paths.home, paths.inbox, paths.indexDir]) {
     if (!existsSync(d)) mkdirSync(d, { recursive: true, mode: 0o700 });
   }
 }

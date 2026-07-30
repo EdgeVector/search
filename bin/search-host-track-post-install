@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
-# Host-track / local-safe install step for the Search app.
-# 1) JS deps via npm so sharp's native postinstall runs (required by
-#    @xenova/transformers). bun install often blocks lifecycle scripts and
-#    leaves sharp broken → silent deterministic fallback.
-# 2) Build search-store (LastStore) into bin/ for PATH links.
+# Host-track / local-safe install for the Search app (semantic-only).
+# JS deps via npm so sharp's native postinstall runs (@xenova/transformers).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$ROOT"
 
 if command -v npm >/dev/null 2>&1; then
-  # Prefer npm for native addons (sharp-darwin-arm64v8.node).
   npm install --omit=dev
 elif command -v bun >/dev/null 2>&1; then
   echo "search-host-track-post-install: npm missing; trying bun (sharp may break)" >&2
@@ -20,22 +16,17 @@ else
   exit 127
 fi
 
-# Dev/test types optional; keep bun available for the CLI runner.
 if command -v bun >/dev/null 2>&1; then
   bun install --dev 2>/dev/null || true
 fi
 
-if ! command -v cargo >/dev/null 2>&1; then
-  echo "search-host-track-post-install: cargo not found (required for search-store)" >&2
-  exit 127
+mkdir -p "$ROOT/bin"
+if [ ! -x "$ROOT/bin/search" ]; then
+  printf '%s\n' '#!/usr/bin/env bun' 'import "../src/cli.ts";' > "$ROOT/bin/search"
+  chmod +x "$ROOT/bin/search"
 fi
 
-cargo build --release -p search-store
-mkdir -p "$ROOT/bin"
-install -m 755 "$ROOT/target/release/search-store" "$ROOT/bin/search-store"
-test -x "$ROOT/bin/search-store"
-
-# Optional: prove neural embedder loads (skip when SEARCH_SKIP_NEURAL_SMOKE=1 or offline CI).
+# Optional neural smoke (skip with SEARCH_SKIP_NEURAL_SMOKE=1).
 if [ "${SEARCH_SKIP_NEURAL_SMOKE:-0}" != "1" ] && command -v bun >/dev/null 2>&1; then
   if SEARCH_EMBEDDER=fastembed bun -e '
     import { createDefaultEmbedder } from "./src/vector/fastembed.ts";
@@ -53,8 +44,8 @@ if [ "${SEARCH_SKIP_NEURAL_SMOKE:-0}" != "1" ] && command -v bun >/dev/null 2>&1
   ' 2>&1; then
     :
   else
-    echo "search-host-track-post-install: WARN neural smoke failed (install may still run; set SEARCH_EMBEDDER=deterministic only for tests)" >&2
+    echo "search-host-track-post-install: WARN neural smoke failed" >&2
   fi
 fi
 
-echo "search-host-track-post-install: OK (bin/search + bin/search-store + JS deps)"
+echo "search-host-track-post-install: OK (bin/search + JS deps; semantic-only)"

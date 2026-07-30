@@ -39,7 +39,7 @@ export function openSearchSession(opts?: {
   return { paths, semantic };
 }
 
-/** Apply one IndexChangeBatch to the semantic plane only. */
+/** Apply one IndexChangeBatch to the semantic plane. */
 export async function applyBatch(
   session: SearchSession,
   batch: IndexChangeBatch,
@@ -48,27 +48,18 @@ export async function applyBatch(
   return { semantic };
 }
 
-/** @deprecated use applyBatch — keyword dual-write removed. */
-export async function applyBatchBoth(
-  session: SearchSession,
-  batch: IndexChangeBatch,
-): Promise<{ keyword: number; semantic: number }> {
-  const r = await applyBatch(session, batch);
-  return { keyword: 0, semantic: r.semantic };
-}
-
 /**
  * Online backfill: drain live inbox + replay done batches into the vector
  * plane without stopping lastdbd. Resumable (skip fresh vectors; periodic flush).
  *
- * No keyword LastStore. Optional legacy `keyword-index.v1.json` text snapshot
- * is still accepted as a bulk re-embed source if present (read-only).
+ * Optional `index/keyword-index.v1.json` text snapshot (legacy filename) is
+ * accepted as a bulk re-embed source if present — no keyword index is written.
  */
 export async function onlineBackfill(
   session: SearchSession,
   opts?: {
     maxDoneFiles?: number;
-    maxKeywordDocs?: number;
+    maxSnapshotDocs?: number;
     force?: boolean;
     flushEvery?: number;
     progress?: ProgressReporter;
@@ -79,13 +70,10 @@ export async function onlineBackfill(
   docs_seen: number;
   docs_embedded: number;
   docs_skipped: number;
-  /** @deprecated alias of docs_embedded */
-  keyword_docs_reembedded: number;
   flushes: number;
   vectors: number;
   resumable: true;
   daemon_stop_required: false;
-  keyword_plane: "removed";
 }> {
   const skipIfFresh = !opts?.force;
   const progress = opts?.progress;
@@ -151,7 +139,7 @@ export async function onlineBackfill(
         >;
       };
       const entries = Object.values(snap.docs ?? {});
-      const maxK = opts?.maxKeywordDocs ?? entries.length;
+      const maxK = opts?.maxSnapshotDocs ?? entries.length;
       const docs = entries
         .slice(0, maxK)
         .filter((d) => d.schema_name && d.text)
@@ -197,12 +185,10 @@ export async function onlineBackfill(
     docs_seen: docsSeen,
     docs_embedded: docsEmbedded,
     docs_skipped: docsSkipped,
-    keyword_docs_reembedded: docsEmbedded,
     flushes,
     vectors: health.vectors,
     resumable: true,
     daemon_stop_required: false,
-    keyword_plane: "removed",
   };
 }
 

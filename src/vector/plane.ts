@@ -134,8 +134,8 @@ export class SemanticSearchPlane {
   }
 
   /**
-   * Re-embed plain text docs (e.g. from keyword plane) while the host daemon
-   * stays up — online backfill path without exclusive store open.
+   * Re-embed plain text docs while the host daemon stays up — online backfill
+   * without exclusive store open.
    *
    * Resumable: skips vectors that are already fresh under the current embedder
    * (same mutation_id + text, or same text when mutation_id is absent) and

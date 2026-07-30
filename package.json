@@ -1,13 +1,13 @@
 {
   "name": "@edgevector/search",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "bin": {
     "search": "./bin/search"
   },
   "exports": {
-    ".": "./src/engine.ts",
+    ".": "./src/semantic.ts",
     "./paths": "./src/paths.ts",
     "./types": "./src/types.ts",
     "./semantic": "./src/semantic.ts",
