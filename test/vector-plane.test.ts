@@ -10,10 +10,11 @@ import {
 import { SemanticSearchPlane } from "../src/vector/plane.ts";
 import { VectorIndex } from "../src/vector/vector_index.ts";
 import { MINILM_L6_V2_DIMS } from "../src/vector/embedder.ts";
-import { applyBatch, openSearchSession } from "../src/semantic.ts";
+import { applyBatch, onlineBackfill, openSearchSession } from "../src/semantic.ts";
 import type { IndexChangeBatch } from "../src/types.ts";
 import { createProgressReporter, silentProgress } from "../src/progress.ts";
 import { drainInbox } from "../src/inbox.ts";
+import type { LiveBackfillSource } from "../src/live_backfill.ts";
 
 describe("field_policy", () => {
   test("excludes secret and no_index; requires word when classifications present", () => {
@@ -236,6 +237,118 @@ describe("resumable indexPlainDocs", () => {
     expect(r.skipped).toBe(1);
     expect(r.embedded).toBe(1);
     expect(plane2.health().vectors).toBe(2);
+  });
+});
+
+describe("onlineBackfill live source", () => {
+  test("pages a live source, checkpoints cursor, and resumes idempotently", async () => {
+    const home = mkdtempSync(join(tmpdir(), "live-backfill-"));
+    const checkpoint = join(home, "checkpoint.json");
+    process.env.SEARCH_HOME = home;
+    process.env.SEARCH_EMBEDDER = "deterministic";
+    try {
+      const pageCursors: Array<string | null> = [];
+      const source: LiveBackfillSource = {
+        id: "fake-live",
+        async listPage({ cursor }) {
+          pageCursors.push(cursor);
+          if (cursor === null) {
+            return {
+              records: [
+                {
+                  schema_name: "brain/Concept",
+                  key_hash: "concept-live-1",
+                  mutation_id: "m-live-1",
+                  searchable_fields: ["title", "body", "secret"],
+                  classifications: {
+                    title: ["word"],
+                    body: ["word"],
+                    secret: ["secret"],
+                  },
+                  fields_and_values: {
+                    title: "live alpha",
+                    body: "needle-live-alpha",
+                    secret: "do-not-index-secret-marker",
+                  },
+                },
+              ],
+              next_cursor: "page-2",
+              total: 2,
+            };
+          }
+          return {
+            records: [
+              {
+                schema_name: "fkanban/Card",
+                key_hash: "card-live-2",
+                mutation_id: "m-live-2",
+                searchable_fields: ["title", "body"],
+                classifications: {
+                  title: ["word"],
+                  body: ["no_index"],
+                },
+                fields_and_values: {
+                  title: "live beta",
+                  body: "do-not-index-noindex-marker",
+                },
+              },
+            ],
+            next_cursor: null,
+            total: 2,
+          };
+        },
+      };
+
+      const session1 = openSearchSession({
+        embedder: new DeterministicMiniLmCompatEmbedder(),
+      });
+      const first = await onlineBackfill(session1, {
+        liveSource: source,
+        liveCheckpointFile: checkpoint,
+        maxLivePages: 1,
+        flushEvery: 1,
+        progress: silentProgress(),
+      });
+      expect(first.live?.live_completed).toBe(false);
+      expect(first.live?.live_records).toBe(1);
+      expect(pageCursors).toEqual([null]);
+
+      const session2 = openSearchSession({
+        embedder: new DeterministicMiniLmCompatEmbedder(),
+      });
+      const second = await onlineBackfill(session2, {
+        liveSource: source,
+        liveCheckpointFile: checkpoint,
+        flushEvery: 1,
+        progress: silentProgress(),
+      });
+      expect(second.live?.live_completed).toBe(true);
+      expect(second.live?.live_records).toBe(1);
+      expect(pageCursors).toEqual([null, "page-2"]);
+
+      const hits = await session2.semantic.query("needle-live-alpha", { k: 5 });
+      expect(hits.some((h) => h.key_hash === "concept-live-1")).toBe(true);
+      const secretHits = await session2.semantic.query("do-not-index-secret-marker", {
+        k: 5,
+        exact: true,
+      });
+      expect(secretHits).toEqual([]);
+      const noIndexHits = await session2.semantic.query(
+        "do-not-index-noindex-marker",
+        { k: 5, exact: true },
+      );
+      expect(noIndexHits).toEqual([]);
+
+      const third = await onlineBackfill(session2, {
+        liveSource: source,
+        liveCheckpointFile: checkpoint,
+        progress: silentProgress(),
+      });
+      expect(third.live?.live_pages).toBe(0);
+    } finally {
+      delete process.env.SEARCH_HOME;
+      delete process.env.SEARCH_EMBEDDER;
+    }
   });
 });
 
