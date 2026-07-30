@@ -22,9 +22,10 @@ fi
 cargo test -p search-store
 cargo build -p search-store
 
-# Real engine tests (fixture ingest → query, LastStore reopen, cold rebuild)
+# Real engine tests (fixture ingest → query, LastStore reopen, cold rebuild).
+# Force deterministic embedder so CI does not download ONNX MiniLM weights.
 if command -v bun >/dev/null 2>&1; then
-  bun test
+  SEARCH_EMBEDDER=deterministic bun test
 else
   echo "bun not on PATH — skip bun test" >&2
   exit 1

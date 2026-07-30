@@ -1,16 +1,28 @@
 #!/usr/bin/env bash
 # Host-track / local-safe install step for the Search app.
-# Builds the LastStore engine binary and places it at bin/search-store so
-# PATH links (search + search-store) work without a checkout-local cargo target.
+# 1) JS deps via npm so sharp's native postinstall runs (required by
+#    @xenova/transformers). bun install often blocks lifecycle scripts and
+#    leaves sharp broken → silent deterministic fallback.
+# 2) Build search-store (LastStore) into bin/ for PATH links.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$ROOT"
 
-if command -v bun >/dev/null 2>&1; then
-  bun install --frozen-lockfile 2>/dev/null || bun install
+if command -v npm >/dev/null 2>&1; then
+  # Prefer npm for native addons (sharp-darwin-arm64v8.node).
+  npm install --omit=dev
+elif command -v bun >/dev/null 2>&1; then
+  echo "search-host-track-post-install: npm missing; trying bun (sharp may break)" >&2
+  bun install
+  bun pm trust --all 2>/dev/null || true
 else
-  echo "search-host-track-post-install: bun not found (TS CLI needs bun)" >&2
+  echo "search-host-track-post-install: need npm or bun for JS deps" >&2
   exit 127
+fi
+
+# Dev/test types optional; keep bun available for the CLI runner.
+if command -v bun >/dev/null 2>&1; then
+  bun install --dev 2>/dev/null || true
 fi
 
 if ! command -v cargo >/dev/null 2>&1; then
@@ -21,6 +33,28 @@ fi
 cargo build --release -p search-store
 mkdir -p "$ROOT/bin"
 install -m 755 "$ROOT/target/release/search-store" "$ROOT/bin/search-store"
-# Keep a stable relative location for resolveSearchStoreBin()
 test -x "$ROOT/bin/search-store"
-echo "search-host-track-post-install: OK (bin/search + bin/search-store)"
+
+# Optional: prove neural embedder loads (skip when SEARCH_SKIP_NEURAL_SMOKE=1 or offline CI).
+if [ "${SEARCH_SKIP_NEURAL_SMOKE:-0}" != "1" ] && command -v bun >/dev/null 2>&1; then
+  if SEARCH_EMBEDDER=fastembed bun -e '
+    import { createDefaultEmbedder } from "./src/vector/fastembed.ts";
+    const r = await createDefaultEmbedder();
+    if (!r.neural) {
+      console.error("neural smoke failed:", r.healthDetail);
+      process.exit(1);
+    }
+    const [v] = await r.embedder.embed(["search neural smoke"]);
+    if (!v || v.length !== 384) {
+      console.error("bad dims", v?.length);
+      process.exit(1);
+    }
+    console.log("search-host-track-post-install: neural MiniLM OK (384-d)");
+  ' 2>&1; then
+    :
+  else
+    echo "search-host-track-post-install: WARN neural smoke failed (install may still run; set SEARCH_EMBEDDER=deterministic only for tests)" >&2
+  fi
+fi
+
+echo "search-host-track-post-install: OK (bin/search + bin/search-store + JS deps)"
