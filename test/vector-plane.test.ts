@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DeterministicMiniLmCompatEmbedder } from "../src/vector/deterministic.ts";
@@ -10,9 +10,10 @@ import {
 import { SemanticSearchPlane } from "../src/vector/plane.ts";
 import { VectorIndex } from "../src/vector/vector_index.ts";
 import { MINILM_L6_V2_DIMS } from "../src/vector/embedder.ts";
-import { applyBatchBoth, openSearchSession } from "../src/semantic.ts";
+import { applyBatch, openSearchSession } from "../src/semantic.ts";
 import type { IndexChangeBatch } from "../src/types.ts";
 import { createProgressReporter, silentProgress } from "../src/progress.ts";
+import { drainInbox } from "../src/inbox.ts";
 
 describe("field_policy", () => {
   test("excludes secret and no_index; requires word when classifications present", () => {
@@ -276,8 +277,8 @@ describe("SemanticSearchPlane health + apply", () => {
   });
 });
 
-describe("session applyBatchBoth", () => {
-  test("keyword + semantic both index the same batch", async () => {
+describe("session semantic-only apply + drain", () => {
+  test("applyBatch indexes semantic only", async () => {
     const home = mkdtempSync(join(tmpdir(), "sess-"));
     process.env.SEARCH_HOME = home;
     process.env.SEARCH_EMBEDDER = "deterministic";
@@ -298,12 +299,51 @@ describe("session applyBatchBoth", () => {
           },
         ],
       };
-      const r = await applyBatchBoth(session, batch);
-      expect(r.keyword).toBe(1);
+      const r = await applyBatch(session, batch);
       expect(r.semantic).toBe(1);
       const sem = await session.semantic.query(marker, { k: 3 });
       expect(sem.length).toBeGreaterThanOrEqual(1);
       expect(sem[0]!.schema_name).toBe("fkanban/Card");
+    } finally {
+      delete process.env.SEARCH_HOME;
+      delete process.env.SEARCH_EMBEDDER;
+    }
+  });
+
+  test("drainInbox applies semantic without keyword engine", async () => {
+    const home = mkdtempSync(join(tmpdir(), "drain-sem-"));
+    const inbox = join(home, "inbox");
+    mkdirSync(inbox, { recursive: true });
+    process.env.SEARCH_HOME = home;
+    process.env.SEARCH_EMBEDDER = "deterministic";
+    try {
+      const session = openSearchSession({
+        embedder: new DeterministicMiniLmCompatEmbedder(),
+      });
+      const marker = `drain-sem-${Date.now()}`;
+      writeFileSync(
+        join(inbox, "b1.json"),
+        JSON.stringify({
+          schema_name: "S",
+          searchable_fields: ["body"],
+          changes: [
+            {
+              mutation_id: "d1",
+              kind: "upsert",
+              key_value: { hash: "h1", range: null },
+              fields_and_values: { body: marker },
+            },
+          ],
+        }),
+      );
+      const r = await drainInbox(inbox, {
+        onBatch: async (b) => {
+          await session.semantic.applyBatch(b);
+        },
+      });
+      expect(r.files).toBe(1);
+      const hits = await session.semantic.query(marker, { k: 3 });
+      expect(hits.length).toBeGreaterThanOrEqual(1);
     } finally {
       delete process.env.SEARCH_HOME;
       delete process.env.SEARCH_EMBEDDER;

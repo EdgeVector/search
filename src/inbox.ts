@@ -1,6 +1,9 @@
 /**
  * Drain host-written IndexChangeBatch JSON files from the Search inbox.
  * Fold writes one JSON object per file under apps/search/inbox/.
+ *
+ * Product path is **semantic only** (2026-07-30): drain applies batches via
+ * `onBatch` (vector plane). No keyword LastStore write on the hot path.
  */
 
 import {
@@ -11,7 +14,6 @@ import {
   mkdirSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { SearchEngine } from "./engine.ts";
 import type { IndexChangeBatch } from "./types.ts";
 
 export type DrainResult = {
@@ -27,53 +29,15 @@ function isBatch(x: unknown): x is IndexChangeBatch {
 }
 
 export type DrainOptions = {
-  /** Optional async hook after keyword apply (e.g. semantic plane). */
+  /** Called for each valid batch before the file moves to done/. */
   onBatch?: (batch: IndexChangeBatch) => void | Promise<void>;
 };
 
-export function drainInbox(
-  engine: SearchEngine,
-  inboxDir: string,
-  opts?: DrainOptions,
-): DrainResult {
-  const result: DrainResult = { files: 0, changes: 0, errors: [] };
-  if (!existsSync(inboxDir)) return result;
-  const doneDir = join(inboxDir, "done");
-  if (!existsSync(doneDir)) mkdirSync(doneDir, { recursive: true, mode: 0o700 });
-
-  const files = readdirSync(inboxDir)
-    .filter((f) => f.endsWith(".json") && !f.startsWith("."))
-    .sort();
-
-  for (const name of files) {
-    const path = join(inboxDir, name);
-    try {
-      const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
-      if (!isBatch(raw)) {
-        result.errors.push(`${name}: not an IndexChangeBatch`);
-        continue;
-      }
-      result.changes += engine.applyChangeBatch(raw);
-      if (opts?.onBatch) {
-        const p = opts.onBatch(raw);
-        // Best-effort sync wait if promise returned from sync drain path
-        if (p && typeof (p as Promise<void>).then === "function") {
-          // Note: callers that need dual-index should use drainInboxAsync
-        }
-      }
-      result.files++;
-      renameSync(path, join(doneDir, name));
-    } catch (e) {
-      result.errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-  engine.persist();
-  return result;
-}
-
-/** Async drain with dual-index support (keyword + optional semantic). */
-export async function drainInboxAsync(
-  engine: SearchEngine,
+/**
+ * Drain inbox: parse each batch JSON, invoke onBatch, move to done/.
+ * Change count = number of change rows across applied batches.
+ */
+export async function drainInbox(
   inboxDir: string,
   opts?: DrainOptions,
 ): Promise<DrainResult> {
@@ -94,14 +58,18 @@ export async function drainInboxAsync(
         result.errors.push(`${name}: not an IndexChangeBatch`);
         continue;
       }
-      result.changes += engine.applyChangeBatch(raw);
+      result.changes += raw.changes.length;
       if (opts?.onBatch) await opts.onBatch(raw);
       result.files++;
       renameSync(path, join(doneDir, name));
     } catch (e) {
-      result.errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+      result.errors.push(
+        `${name}: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
-  engine.persist();
   return result;
 }
+
+/** @deprecated alias — same as drainInbox (semantic-only era). */
+export const drainInboxAsync = drainInbox;

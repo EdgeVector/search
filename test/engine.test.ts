@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openSearchEngine } from "../src/engine.ts";
-import { drainInbox } from "../src/inbox.ts";
 import type { IndexChangeBatch } from "../src/types.ts";
+// Keyword engine unit tests remain for the legacy library; product CLI no longer uses it.
 
 const UNIQUE = `search-fixture-${Date.now()}-zxq9`;
 
@@ -59,22 +59,13 @@ describe("SearchEngine fixture round-trip", () => {
     expect(eng.search(UNIQUE)).toEqual([]);
   });
 
-  test("drainInbox applies host outbox files then query hits", () => {
-    const root = mkdtempSync(join(tmpdir(), "search-inbox-"));
-    const inbox = join(root, "inbox");
-    const indexDir = join(root, "index");
-    mkdirSync(inbox, { recursive: true });
-    mkdirSync(indexDir, { recursive: true });
+  test("legacy SearchEngine applies batch without product drain", () => {
+    // Product drain is semantic-only (see vector-plane drain test).
+    const indexDir = mkdtempSync(join(tmpdir(), "search-legacy-kw-"));
     const marker = `inbox-marker-${Date.now()}-qwerty`;
-    writeFileSync(
-      join(inbox, "batch-001.json"),
-      JSON.stringify(batch(marker, "fkanban/Card")),
-    );
     const eng = openSearchEngine(indexDir);
-    const drained = drainInbox(eng, inbox);
-    expect(drained.files).toBe(1);
-    expect(drained.changes).toBe(1);
-    expect(drained.errors).toEqual([]);
+    expect(eng.applyChangeBatch(batch(marker, "fkanban/Card"))).toBe(1);
+    eng.persist();
     const hits = eng.search(marker);
     expect(hits.length).toBe(1);
     expect(hits[0]!.schema_name).toBe("fkanban/Card");
