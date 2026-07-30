@@ -14,7 +14,11 @@ import { applyBatch, onlineBackfill, openSearchSession } from "../src/semantic.t
 import type { IndexChangeBatch } from "../src/types.ts";
 import { createProgressReporter, silentProgress } from "../src/progress.ts";
 import { drainInbox } from "../src/inbox.ts";
-import type { LiveBackfillSource } from "../src/live_backfill.ts";
+import {
+  defaultLiveBackfillCheckpointPath,
+  type LiveBackfillSource,
+} from "../src/live_backfill.ts";
+import { runSearchDoctor } from "../src/doctor.ts";
 
 describe("field_policy", () => {
   test("excludes secret and no_index; requires word when classifications present", () => {
@@ -461,5 +465,128 @@ describe("session semantic-only apply + drain", () => {
       delete process.env.SEARCH_HOME;
       delete process.env.SEARCH_EMBEDDER;
     }
+  });
+});
+
+describe("search doctor", () => {
+  test("reports healthy model and configured clients", async () => {
+    const home = mkdtempSync(join(tmpdir(), "doctor-ok-"));
+    const session = openSearchSession({
+      lastDbHome: home,
+      embedder: new DeterministicMiniLmCompatEmbedder(),
+    });
+    await session.semantic.indexPlainDocs(
+      [
+        {
+          schema_name: "S",
+          key_hash: "ok",
+          key_range: null,
+          text: "doctor healthy vector",
+        },
+      ],
+      { flushEvery: 1 },
+    );
+    const checkpoint = defaultLiveBackfillCheckpointPath(session.paths);
+    writeFileSync(
+      checkpoint,
+      JSON.stringify({
+        version: 1,
+        source_id: "fake-live",
+        cursor: null,
+        completed: true,
+        updated_at: new Date(0).toISOString(),
+      }),
+    );
+    const liveSource: LiveBackfillSource = {
+      id: "fake-live",
+      async listPage() {
+        return { records: [], next_cursor: null, total: 0 };
+      },
+    };
+    const report = await runSearchDoctor({
+      session,
+      liveSource,
+      env: {
+        BRAIN_SEARCH_URL: "http://search.local",
+        FKANBAN_SEARCH_URL: "http://search.local",
+      },
+      now: () => new Date(0),
+    });
+    expect(report.status).toBe("healthy");
+    expect(report.checks.find((c) => c.name === "vector_index")?.level).toBe("ok");
+    expect(report.checks.find((c) => c.name === "lastdb_live_backfill")?.level).toBe("ok");
+  });
+
+  test("reports missing model as degraded", async () => {
+    const old = process.env.SEARCH_EMBEDDER;
+    process.env.SEARCH_EMBEDDER = "not-a-model";
+    try {
+      const home = mkdtempSync(join(tmpdir(), "doctor-model-"));
+      const session = openSearchSession({ lastDbHome: home });
+      const report = await runSearchDoctor({
+        session,
+        env: {},
+        now: () => new Date(0),
+      });
+      const model = report.checks.find((c) => c.name === "fastembed_model");
+      expect(report.status).toBe("degraded");
+      expect(model?.level).toBe("error");
+      expect(String(model?.detail?.detail ?? "")).toContain("Unknown SEARCH_EMBEDDER");
+    } finally {
+      if (old === undefined) delete process.env.SEARCH_EMBEDDER;
+      else process.env.SEARCH_EMBEDDER = old;
+    }
+  });
+
+  test("reports empty index and in-progress backfill checkpoint", async () => {
+    const home = mkdtempSync(join(tmpdir(), "doctor-empty-"));
+    process.env.SEARCH_HOME = home;
+    process.env.SEARCH_EMBEDDER = "deterministic";
+    try {
+      const session = openSearchSession();
+      writeFileSync(
+        defaultLiveBackfillCheckpointPath(session.paths),
+        JSON.stringify({
+          version: 1,
+          source_id: "fake-live",
+          cursor: "next-page",
+          completed: false,
+          updated_at: new Date(0).toISOString(),
+        }),
+      );
+      const report = await runSearchDoctor({
+        session,
+        env: {},
+        now: () => new Date(0),
+      });
+      expect(report.status).toBe("healthy");
+      expect(report.checks.find((c) => c.name === "vector_index")?.level).toBe("warn");
+      expect(report.checks.find((c) => c.name === "online_backfill")?.summary).toContain("in progress");
+    } finally {
+      delete process.env.SEARCH_HOME;
+      delete process.env.SEARCH_EMBEDDER;
+    }
+  });
+
+  test("reports unavailable live daemon as degraded", async () => {
+    const home = mkdtempSync(join(tmpdir(), "doctor-down-"));
+    const session = openSearchSession({
+      lastDbHome: home,
+      embedder: new DeterministicMiniLmCompatEmbedder(),
+    });
+    const liveSource: LiveBackfillSource = {
+      id: "down",
+      async listPage() {
+        throw new Error("connection refused");
+      },
+    };
+    const report = await runSearchDoctor({
+      session,
+      liveSource,
+      env: {},
+      now: () => new Date(0),
+    });
+    expect(report.status).toBe("degraded");
+    expect(report.checks.find((c) => c.name === "lastdb_live_backfill")?.level).toBe("error");
   });
 });

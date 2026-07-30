@@ -19,6 +19,7 @@ import {
 } from "./semantic.ts";
 import { createProgressReporter } from "./progress.ts";
 import { createHttpLiveBackfillSource } from "./live_backfill.ts";
+import { runSearchDoctor } from "./doctor.ts";
 
 function usage(): never {
   console.error(`usage:
@@ -28,6 +29,8 @@ function usage(): never {
   search semantic-query <text> ...   # alias of query
   search apply --file <batch.json> [--last-db-home DIR]
   search rebuild --batches-dir DIR [--last-db-home DIR]
+  search doctor [--last-db-home DIR] [--live-url URL] [--checkpoint-file FILE] [--strict]
+  search bootstrap [--last-db-home DIR] [--max-done N] [--live-url URL] [--live-page-size N] [--checkpoint-file FILE] [--flush-every N] [--force] [--quiet]
   search online-backfill [--last-db-home DIR] [--max-done N] [--live-url URL] [--live-page-size N] [--checkpoint-file FILE] [--flush-every N] [--force] [--quiet]
   search status | vector-status [--last-db-home DIR]
 
@@ -55,6 +58,7 @@ function parseArgs(argv: string[]) {
   let checkpointFile: string | undefined;
   let force = false;
   let quiet = false;
+  let strict = false;
   const schemas: string[] = [];
   const positionals: string[] = [];
   for (let i = 0; i < rest.length; i++) {
@@ -89,6 +93,8 @@ function parseArgs(argv: string[]) {
       force = true;
     } else if (a === "--quiet" || a === "-q") {
       quiet = true;
+    } else if (a === "--strict") {
+      strict = true;
     } else if (a.startsWith("-")) {
       console.error(`unknown flag ${a}`);
       usage();
@@ -112,6 +118,7 @@ function parseArgs(argv: string[]) {
     checkpointFile,
     force,
     quiet,
+    strict,
     schemas,
     positionals,
   };
@@ -138,6 +145,17 @@ async function main(): Promise<void> {
         2,
       ),
     );
+    return;
+  }
+
+  if (opts.cmd === "doctor") {
+    const report = await runSearchDoctor({
+      lastDbHome: opts.lastDbHome,
+      liveUrl: opts.liveUrl,
+      checkpointFile: opts.checkpointFile,
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (opts.strict && !report.ok) process.exit(1);
     return;
   }
 
@@ -211,7 +229,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (opts.cmd === "init" || opts.cmd === "online-backfill") {
+  if (
+    opts.cmd === "init" ||
+    opts.cmd === "bootstrap" ||
+    opts.cmd === "online-backfill"
+  ) {
     const progress = createProgressReporter({ quiet: opts.quiet });
     progress.startPhase("starting");
     const session = openSearchSession({ lastDbHome: opts.lastDbHome });

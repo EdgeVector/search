@@ -32,6 +32,8 @@ Override: `SEARCH_HOME`, `SEARCH_INBOX`, `SEARCH_VECTOR_INDEX`,
 
 ```bash
 search init [--force] [--quiet]     # dirs + online-backfill (resumable; progress on stderr)
+search bootstrap [--live-url URL]   # online bootstrap against a running daemon
+search doctor [--live-url URL]      # scriptable readiness/config report
 search drain                        # apply inbox batches to vectors
 search query "meaning query" --json # semantic k-NN (alias: semantic-query)
 search apply --file batch.json
@@ -42,6 +44,16 @@ search status | vector-status
 
 `search init` / `online-backfill` are **resumable** (skip fresh vectors; flush
 every N embeds). Final JSON is on **stdout**; progress bar on **stderr**.
+`search bootstrap` is the named online install path and uses the same resumable
+engine. `search doctor --strict` exits non-zero only when a required check such
+as the model or live endpoint is degraded; an empty index or missing checkpoint
+is reported with a next action.
+
+Use `--live-url` or `SEARCH_LIVE_BACKFILL_URL` for the LastDB live backfill
+endpoint. Client config checks report `BRAIN_SEARCH_URL` and
+`FKANBAN_SEARCH_URL` (or shared `SEARCH_HTTP_URL`) so brain and fkanban install
+issues are visible in one report. Offline `search rebuild --batches-dir` remains
+the disaster recovery path when online bootstrap cannot be used.
 
 ## Library
 
