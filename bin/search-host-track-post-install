@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Host-track / local-safe install step for the Search app.
+# Builds the LastStore engine binary and places it at bin/search-store so
+# PATH links (search + search-store) work without a checkout-local cargo target.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+cd "$ROOT"
+
+if command -v bun >/dev/null 2>&1; then
+  bun install --frozen-lockfile 2>/dev/null || bun install
+else
+  echo "search-host-track-post-install: bun not found (TS CLI needs bun)" >&2
+  exit 127
+fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "search-host-track-post-install: cargo not found (required for search-store)" >&2
+  exit 127
+fi
+
+cargo build --release -p search-store
+mkdir -p "$ROOT/bin"
+install -m 755 "$ROOT/target/release/search-store" "$ROOT/bin/search-store"
+# Keep a stable relative location for resolveSearchStoreBin()
+test -x "$ROOT/bin/search-store"
+echo "search-host-track-post-install: OK (bin/search + bin/search-store)"

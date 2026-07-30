@@ -41,11 +41,26 @@ export function resolveSearchStoreBin(): string | null {
   const env = process.env.SEARCH_STORE_BIN?.trim();
   if (env && existsSync(env)) return env;
   const candidates = [
+    // Host-track install places the release binary next to bin/search
+    join(packageRoot(), "bin/search-store"),
     join(packageRoot(), "target/release/search-store"),
     join(packageRoot(), "target/debug/search-store"),
   ];
   for (const c of candidates) {
     if (existsSync(c)) return c;
+  }
+  // PATH fallback (global ~/.local/bin/search-store)
+  try {
+    const which = Bun.spawnSync(["bash", "-lc", "command -v search-store"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (which.exitCode === 0) {
+      const p = new TextDecoder().decode(which.stdout).trim();
+      if (p && existsSync(p)) return p;
+    }
+  } catch {
+    // ignore
   }
   return null;
 }
