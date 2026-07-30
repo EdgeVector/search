@@ -51,17 +51,13 @@ export async function applyBatch(
 
 /**
  * Online backfill: drain live inbox + replay done batches into the vector
- * plane without stopping lastdbd. Resumable (skip fresh vectors; periodic flush).
- *
- * Optional `index/keyword-index.v1.json` text snapshot (legacy filename) is
- * accepted as a bulk re-embed source if present — no keyword index is written.
+ * plane without stopping lastdbd. Resumable via skipIfFresh on vectors.
  */
 export async function onlineBackfill(
   session: SearchSession,
   opts?: {
     maxDoneFiles?: number;
     force?: boolean;
-    flushEvery?: number;
     progress?: ProgressReporter;
   },
 ): Promise<{
@@ -73,7 +69,6 @@ export async function onlineBackfill(
 }> {
   const skipIfFresh = !opts?.force;
   const progress = opts?.progress;
-  void opts?.flushEvery;
 
   progress?.startPhase("drain-inbox");
   const drained = await drainInbox(session.paths.inbox, {
