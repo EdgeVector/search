@@ -18,6 +18,7 @@ import {
   semanticQuery,
 } from "./semantic.ts";
 import { createProgressReporter } from "./progress.ts";
+import { createHttpLiveBackfillSource } from "./live_backfill.ts";
 
 function usage(): never {
   console.error(`usage:
@@ -27,7 +28,7 @@ function usage(): never {
   search semantic-query <text> ...   # alias of query
   search apply --file <batch.json> [--last-db-home DIR]
   search rebuild --batches-dir DIR [--last-db-home DIR]
-  search online-backfill [--last-db-home DIR] [--max-done N] [--flush-every N] [--force] [--quiet]
+  search online-backfill [--last-db-home DIR] [--max-done N] [--live-url URL] [--live-page-size N] [--checkpoint-file FILE] [--flush-every N] [--force] [--quiet]
   search status | vector-status [--last-db-home DIR]
 
   Semantic vector plane only (all-MiniLM-L6-v2).
@@ -49,6 +50,9 @@ function parseArgs(argv: string[]) {
   let minScore: number | undefined;
   let maxDone: number | undefined;
   let flushEvery: number | undefined;
+  let liveUrl: string | undefined;
+  let livePageSize: number | undefined;
+  let checkpointFile: string | undefined;
   let force = false;
   let quiet = false;
   const schemas: string[] = [];
@@ -73,6 +77,12 @@ function parseArgs(argv: string[]) {
       minScore = Number(rest[++i]);
     } else if (a === "--max-done") {
       maxDone = Number(rest[++i]);
+    } else if (a === "--live-url" || a === "--backfill-url") {
+      liveUrl = rest[++i];
+    } else if (a === "--live-page-size" || a === "--page-size") {
+      livePageSize = Number(rest[++i]);
+    } else if (a === "--checkpoint-file") {
+      checkpointFile = rest[++i];
     } else if (a === "--flush-every") {
       flushEvery = Number(rest[++i]);
     } else if (a === "--force") {
@@ -97,6 +107,9 @@ function parseArgs(argv: string[]) {
     minScore,
     maxDone,
     flushEvery,
+    liveUrl,
+    livePageSize,
+    checkpointFile,
     force,
     quiet,
     schemas,
@@ -204,10 +217,16 @@ async function main(): Promise<void> {
     const session = openSearchSession({ lastDbHome: opts.lastDbHome });
     progress.startPhase("embedder-ready");
     await session.semantic.ensureReady();
+    const liveUrl = opts.liveUrl ?? process.env.SEARCH_LIVE_BACKFILL_URL;
     const r = await onlineBackfill(session, {
       maxDoneFiles: opts.maxDone,
       force: opts.force,
       flushEvery: opts.flushEvery,
+      liveSource: liveUrl
+        ? createHttpLiveBackfillSource({ url: liveUrl })
+        : undefined,
+      livePageLimit: opts.livePageSize,
+      liveCheckpointFile: opts.checkpointFile,
       progress,
     });
     console.log(

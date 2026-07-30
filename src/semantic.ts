@@ -15,6 +15,11 @@ import {
 } from "./paths.ts";
 import type { IndexChangeBatch } from "./types.ts";
 import {
+  runLiveBackfill,
+  type LiveBackfillResult,
+  type LiveBackfillSource,
+} from "./live_backfill.ts";
+import {
   openSemanticPlane,
   type SemanticSearchPlane,
 } from "./vector/plane.ts";
@@ -58,6 +63,12 @@ export async function onlineBackfill(
   opts?: {
     maxDoneFiles?: number;
     force?: boolean;
+    flushEvery?: number;
+    liveSource?: LiveBackfillSource;
+    liveCheckpointFile?: string;
+    livePageLimit?: number;
+    maxLivePages?: number;
+    maxLiveRetries?: number;
     progress?: ProgressReporter;
   },
 ): Promise<{
@@ -66,6 +77,7 @@ export async function onlineBackfill(
   vectors: number;
   resumable: true;
   daemon_stop_required: false;
+  live?: LiveBackfillResult;
 }> {
   const skipIfFresh = !opts?.force;
   const progress = opts?.progress;
@@ -110,9 +122,22 @@ export async function onlineBackfill(
     }
   }
 
+  let live: LiveBackfillResult | undefined;
+  if (opts?.liveSource) {
+    live = await runLiveBackfill(session.semantic, session.paths, opts.liveSource, {
+      checkpointFile: opts.liveCheckpointFile,
+      force: opts.force,
+      pageLimit: opts.livePageLimit,
+      maxPages: opts.maxLivePages,
+      maxRetries: opts.maxLiveRetries,
+      flushEvery: opts.flushEvery,
+      progress,
+    });
+  }
+
   const health = session.semantic.health();
   progress?.finish(
-    `done batches=${batchesReplayed} vectors=${health.vectors}`,
+    `done batches=${batchesReplayed} live=${live?.live_records ?? 0} vectors=${health.vectors}`,
   );
   return {
     drained_files: drained.files,
@@ -120,6 +145,7 @@ export async function onlineBackfill(
     vectors: health.vectors,
     resumable: true,
     daemon_stop_required: false,
+    live,
   };
 }
 
