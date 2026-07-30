@@ -52,6 +52,15 @@ re-embed the keyword corpus into the vector plane). You can re-run `init` anytim
 does not stop `lastdbd`. Prefer `init` after first install, host-track refresh, or
 restore; use `online-backfill` when you only want the re-embed step by name.
 
+**Resumable:** both commands skip docs that already have a fresh vector (same embedder +
+text / mutation_id) and flush the vector snapshot every 50 new embeds by default
+(`--flush-every N`). Interrupt and re-run — progress is kept. Use `--force` to re-embed
+everything.
+
+**Progress:** a live bar is written to **stderr** (counts, rate, ETA). Final JSON summary
+stays on **stdout**. Use `--quiet` or `SEARCH_PROGRESS=0` to silence the bar; set
+`SEARCH_PROGRESS=plain` for line-at-a-time logs (no TTY redraw).
+
 `query` / `semantic-query` drain the inbox first so host-delivered batches are visible.
 Semantic query supports native-parity knobs: `--schema` (repeatable, structural scope),
 `--k`, `--exact`, `--min-score`.
