@@ -20,6 +20,7 @@ import {
 
 function usage(): never {
   console.error(`usage:
+  search init [--last-db-home DIR] [--max-done N]
   search drain [--last-db-home DIR]
   search query <text> [--k N] [--schema S]... [--json] [--last-db-home DIR]
   search semantic-query <text> [--k N] [--schema S]... [--exact] [--min-score F] [--json] [--last-db-home DIR]
@@ -28,6 +29,9 @@ function usage(): never {
   search online-backfill [--last-db-home DIR] [--max-done N]
   search status [--last-db-home DIR]
   search vector-status [--last-db-home DIR]
+
+  init                 ensure Search dirs + run online-backfill (daemon may stay up)
+  online-backfill      same re-embed path as init without re-documenting bootstrap
 `);
   process.exit(2);
 }
@@ -180,16 +184,32 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (opts.cmd === "online-backfill") {
+  // init = first-run / re-bootstrap: dirs already ensured above; run online-backfill
+  // so a fresh install (or cold home) rebuilds keyword+semantic without stopping Mini.
+  if (opts.cmd === "init" || opts.cmd === "online-backfill") {
     const session = openSearchSession({ lastDbHome: opts.lastDbHome });
+    await session.semantic.ensureReady();
     const r = await onlineBackfill(session, { maxDoneFiles: opts.maxDone });
     console.log(
-      JSON.stringify({
-        ok: true,
-        ...r,
-        vector: session.semantic.health(),
-        note: "daemon_stop_required=false; replays inbox/done + drain; primary may stay up",
-      }, null, 2),
+      JSON.stringify(
+        {
+          ok: true,
+          cmd: opts.cmd,
+          home: paths.home,
+          inbox: paths.inbox,
+          lastStoreDir: paths.lastStoreDir,
+          vectorIndexPath: paths.vectorIndexPath,
+          docs: session.keyword.size,
+          ...r,
+          vector: session.semantic.health(),
+          note:
+            opts.cmd === "init"
+              ? "init runs online-backfill; daemon_stop_required=false; primary may stay up"
+              : "daemon_stop_required=false; replays inbox/done + drain; primary may stay up",
+        },
+        null,
+        2,
+      ),
     );
     return;
   }
