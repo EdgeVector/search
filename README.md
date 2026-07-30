@@ -2,8 +2,9 @@
 
 First-party embedded index app for LastDB (`lastdb:///search`).
 
-Search owns local **keyword** and **semantic (vector)** indexing for Brain,
-F-Kanban, and other EdgeVector apps. The LastDB kernel keeps thin contracts for
+Search owns the local **semantic (vector)** index for Brain, F-Kanban, and other
+EdgeVector apps. The keyword LastStore plane was removed from the product path
+(2026-07-30); consumers query vectors only. The LastDB kernel keeps thin contracts for
 durable records, change notification, and index sinks; it **should not ship
 FastEmbed**, ONNX, model weights, or vector-index internals in the default
 `lastdbd` binary — those live here (Search), typically **all-MiniLM-L6-v2**.
