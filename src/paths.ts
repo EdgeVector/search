@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 export type SearchPaths = {
   home: string;
   inbox: string;
-  /** Optional legacy text snapshot dir (keyword-index.v1.json may live here). */
+  /** Optional index dir (unused by semantic path; kept for path layout). */
   indexDir: string;
   /** Durable semantic vector snapshot (regenerable). */
   vectorIndexPath: string;

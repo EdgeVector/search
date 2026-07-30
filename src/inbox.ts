@@ -2,8 +2,7 @@
  * Drain host-written IndexChangeBatch JSON files from the Search inbox.
  * Fold writes one JSON object per file under apps/search/inbox/.
  *
- * Product path is **semantic only** (2026-07-30): drain applies batches via
- * `onBatch` (vector plane). No keyword LastStore write on the hot path.
+ * Drain applies batches via `onBatch` (semantic vector plane).
  */
 
 import {
