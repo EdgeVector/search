@@ -30,7 +30,7 @@ function usage(): never {
   search online-backfill [--last-db-home DIR] [--max-done N] [--flush-every N] [--force] [--quiet]
   search status | vector-status [--last-db-home DIR]
 
-  Product path is semantic vectors only (no keyword LastStore index).
+  Semantic vector plane only (all-MiniLM-L6-v2).
 `);
   process.exit(2);
 }
@@ -119,7 +119,6 @@ async function main(): Promise<void> {
           inbox: paths.inbox,
           vectorIndexPath: paths.vectorIndexPath,
           plane: "search-app-semantic-v1",
-          keyword_plane: "removed",
           vector: session.semantic.health(),
         },
         null,
@@ -152,7 +151,6 @@ async function main(): Promise<void> {
         batches: files.length,
         semantic_applied: semantic,
         semantic_vectors: session.semantic.health().vectors,
-        keyword_plane: "removed",
       }),
     );
     return;
@@ -172,7 +170,6 @@ async function main(): Promise<void> {
           ok: true,
           ...r,
           vector: session.semantic.health(),
-          keyword_plane: "removed",
         },
         null,
         2,
@@ -223,7 +220,7 @@ async function main(): Promise<void> {
           vectorIndexPath: paths.vectorIndexPath,
           ...r,
           vector: session.semantic.health(),
-          note: "semantic-only Search; keyword LastStore removed from product path",
+          note: "semantic vector plane only",
         },
         null,
         2,
@@ -233,12 +230,6 @@ async function main(): Promise<void> {
   }
 
   if (opts.cmd === "semantic-query" || opts.cmd === "query") {
-    if (process.env.SEARCH_QUERY_MODE === "keyword") {
-      console.error(
-        "search: keyword mode removed — product path is semantic only (unset SEARCH_QUERY_MODE=keyword)",
-      );
-      process.exit(2);
-    }
     const session = openSearchSession({ lastDbHome: opts.lastDbHome });
     await drainInbox(session.paths.inbox, {
       onBatch: async (b) => {

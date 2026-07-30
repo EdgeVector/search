@@ -310,7 +310,7 @@ describe("session semantic-only apply + drain", () => {
     }
   });
 
-  test("drainInbox applies semantic without keyword engine", async () => {
+  test("drainInbox applies batches to semantic plane", async () => {
     const home = mkdtempSync(join(tmpdir(), "drain-sem-"));
     const inbox = join(home, "inbox");
     mkdirSync(inbox, { recursive: true });

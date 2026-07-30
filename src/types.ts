@@ -1,6 +1,6 @@
 /**
  * Wire types for Search ingest — aligned with fold_db IndexChangeBatch
- * (native_index/sink.rs). Keyword/semantic index is regenerable local state.
+ * (native_index/sink.rs). Semantic vector index is regenerable local state.
  */
 
 export type IndexChangeKind = "upsert" | "tombstone";
@@ -23,28 +23,14 @@ export type IndexChangeBatch = {
   changes: IndexChange[];
 };
 
-export type SearchHit = {
-  schema_name: string;
-  key_hash: string | null;
-  key_range: string | null;
-  score: number;
-  text: string;
-  mutation_id?: string;
-};
-
 export type SearchQueryOptions = {
   k?: number;
   /** Restrict to these schema names / identity hashes. */
   schemas?: string[];
-  /** Substring gate on hit text (native-parity). */
+  /** Substring gate on hit text. */
   exact?: boolean;
-  /** Minimum similarity score (native-parity). */
+  /** Minimum similarity score. */
   min_score?: number;
-  /**
-   * Prefer semantic vector plane when healthy.
-   * Default true for product path; keyword fallback when false or degraded.
-   */
-  semantic?: boolean;
 };
 
 export type SemanticSearchHit = {
