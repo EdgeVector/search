@@ -7,6 +7,7 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { drainInbox } from "./inbox.ts";
+// readdir/readFile used for done/ batch replay only
 import {
   ensureSearchDirs,
   resolveSearchPaths,
@@ -50,27 +51,18 @@ export async function applyBatch(
 
 /**
  * Online backfill: drain live inbox + replay done batches into the vector
- * plane without stopping lastdbd. Resumable (skip fresh vectors; periodic flush).
- *
- * Optional `index/keyword-index.v1.json` text snapshot (legacy filename) is
- * accepted as a bulk re-embed source if present — no keyword index is written.
+ * plane without stopping lastdbd. Resumable via skipIfFresh on vectors.
  */
 export async function onlineBackfill(
   session: SearchSession,
   opts?: {
     maxDoneFiles?: number;
-    maxSnapshotDocs?: number;
     force?: boolean;
-    flushEvery?: number;
     progress?: ProgressReporter;
   },
 ): Promise<{
   drained_files: number;
   batches_replayed: number;
-  docs_seen: number;
-  docs_embedded: number;
-  docs_skipped: number;
-  flushes: number;
   vectors: number;
   resumable: true;
   daemon_stop_required: false;
@@ -118,74 +110,13 @@ export async function onlineBackfill(
     }
   }
 
-  // Optional legacy text snapshot (no keyword engine).
-  let docsSeen = 0;
-  let docsEmbedded = 0;
-  let docsSkipped = 0;
-  let flushes = 0;
-  const keywordSnap = join(session.paths.indexDir, "keyword-index.v1.json");
-  if (existsSync(keywordSnap)) {
-    try {
-      const snap = JSON.parse(readFileSync(keywordSnap, "utf8")) as {
-        docs?: Record<
-          string,
-          {
-            schema_name?: string;
-            key_hash?: string | null;
-            key_range?: string | null;
-            text?: string;
-            mutation_id?: string;
-          }
-        >;
-      };
-      const entries = Object.values(snap.docs ?? {});
-      const maxK = opts?.maxSnapshotDocs ?? entries.length;
-      const docs = entries
-        .slice(0, maxK)
-        .filter((d) => d.schema_name && d.text)
-        .map((d) => ({
-          schema_name: d.schema_name!,
-          key_hash: d.key_hash ?? null,
-          key_range: d.key_range ?? null,
-          text: d.text!,
-          mutation_id: d.mutation_id,
-        }));
-      docsSeen = docs.length;
-      progress?.startPhase("snapshot-reembed", docsSeen);
-      const r = await session.semantic.indexPlainDocs(docs, {
-        skipIfFresh,
-        force: opts?.force,
-        flushEvery: opts?.flushEvery,
-        onProgress: (p) => {
-          progress?.tick({
-            phase: "snapshot-reembed",
-            done: p.done,
-            total: p.total,
-            embedded: p.embedded,
-            skipped: p.skipped,
-            flushes: p.flushes,
-          });
-        },
-      });
-      docsEmbedded = r.embedded;
-      docsSkipped = r.skipped;
-      flushes = r.flushes;
-    } catch {
-      /* optional */
-    }
-  }
-
   const health = session.semantic.health();
   progress?.finish(
-    `done emb=${docsEmbedded} skip=${docsSkipped} vectors=${health.vectors} flushes=${flushes}`,
+    `done batches=${batchesReplayed} vectors=${health.vectors}`,
   );
   return {
     drained_files: drained.files,
     batches_replayed: batchesReplayed,
-    docs_seen: docsSeen,
-    docs_embedded: docsEmbedded,
-    docs_skipped: docsSkipped,
-    flushes,
     vectors: health.vectors,
     resumable: true,
     daemon_stop_required: false,
