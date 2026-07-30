@@ -35,15 +35,22 @@ Override with `SEARCH_HOME`, `SEARCH_INBOX`, `SEARCH_LASTSTORE_DIR`,
 
 ```bash
 cargo build -p search-store   # LastStore engine binary
+search init --last-db-home /path/to/home   # bootstrap: dirs + online-backfill (does NOT stop lastdbd)
 search drain --last-db-home /path/to/home
 search query "distinctive text" --json --last-db-home /path/to/home
 search semantic-query "meaning query" --schema <hash> --k 10 --json
 search apply --file batch.json --last-db-home ...
 search rebuild --batches-dir ./batches --last-db-home ...
-search online-backfill --last-db-home ...   # does NOT stop lastdbd
+search online-backfill --last-db-home ...   # same re-embed path as init; does NOT stop lastdbd
 search status
 search vector-status
 ```
+
+`search init` is the install / cold-home entry point: it ensures Search app dirs under
+the LastDB home, then runs **online-backfill** (drain live inbox, replay done batches,
+re-embed the keyword corpus into the vector plane). You can re-run `init` anytime; it
+does not stop `lastdbd`. Prefer `init` after first install, host-track refresh, or
+restore; use `online-backfill` when you only want the re-embed step by name.
 
 `query` / `semantic-query` drain the inbox first so host-delivered batches are visible.
 Semantic query supports native-parity knobs: `--schema` (repeatable, structural scope),
