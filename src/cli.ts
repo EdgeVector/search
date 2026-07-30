@@ -17,21 +17,25 @@ import {
   openSearchSession,
   semanticQuery,
 } from "./semantic.ts";
+import { createProgressReporter } from "./progress.ts";
 
 function usage(): never {
   console.error(`usage:
-  search init [--last-db-home DIR] [--max-done N]
+  search init [--last-db-home DIR] [--max-done N] [--flush-every N] [--force] [--quiet]
   search drain [--last-db-home DIR]
   search query <text> [--k N] [--schema S]... [--json] [--last-db-home DIR]
   search semantic-query <text> [--k N] [--schema S]... [--exact] [--min-score F] [--json] [--last-db-home DIR]
   search apply --file <batch.json> [--last-db-home DIR]
   search rebuild --batches-dir DIR [--last-db-home DIR]
-  search online-backfill [--last-db-home DIR] [--max-done N]
+  search online-backfill [--last-db-home DIR] [--max-done N] [--flush-every N] [--force] [--quiet]
   search status [--last-db-home DIR]
   search vector-status [--last-db-home DIR]
 
   init                 ensure Search dirs + run online-backfill (daemon may stay up)
-  online-backfill      same re-embed path as init without re-documenting bootstrap
+  online-backfill      same re-embed path as init; both are RESUMABLE (skip fresh vectors)
+  --force              re-embed even when a fresh vector already exists
+  --flush-every N      persist vector index every N new embeds (default 50)
+  --quiet              no stderr progress bar (stdout JSON still printed)
 `);
   process.exit(2);
 }
@@ -49,6 +53,9 @@ function parseArgs(argv: string[]) {
   let exact = false;
   let minScore: number | undefined;
   let maxDone: number | undefined;
+  let flushEvery: number | undefined;
+  let force = false;
+  let quiet = false;
   const schemas: string[] = [];
   const positionals: string[] = [];
   for (let i = 0; i < rest.length; i++) {
@@ -71,6 +78,12 @@ function parseArgs(argv: string[]) {
       minScore = Number(rest[++i]);
     } else if (a === "--max-done") {
       maxDone = Number(rest[++i]);
+    } else if (a === "--flush-every") {
+      flushEvery = Number(rest[++i]);
+    } else if (a === "--force") {
+      force = true;
+    } else if (a === "--quiet" || a === "-q") {
+      quiet = true;
     } else if (a.startsWith("-")) {
       console.error(`unknown flag ${a}`);
       usage();
@@ -88,6 +101,9 @@ function parseArgs(argv: string[]) {
     exact,
     minScore,
     maxDone,
+    flushEvery,
+    force,
+    quiet,
     schemas,
     positionals,
   };
@@ -186,10 +202,20 @@ async function main(): Promise<void> {
 
   // init = first-run / re-bootstrap: dirs already ensured above; run online-backfill
   // so a fresh install (or cold home) rebuilds keyword+semantic without stopping Mini.
+  // Resumable: re-run skips already-fresh vectors; flushes periodically (see --flush-every).
   if (opts.cmd === "init" || opts.cmd === "online-backfill") {
+    const progress = createProgressReporter({ quiet: opts.quiet });
+    progress.startPhase("starting");
     const session = openSearchSession({ lastDbHome: opts.lastDbHome });
+    progress.startPhase("embedder-ready");
     await session.semantic.ensureReady();
-    const r = await onlineBackfill(session, { maxDoneFiles: opts.maxDone });
+    const r = await onlineBackfill(session, {
+      maxDoneFiles: opts.maxDone,
+      force: opts.force,
+      flushEvery: opts.flushEvery,
+      progress,
+    });
+    // Final machine-readable summary on stdout (progress was on stderr).
     console.log(
       JSON.stringify(
         {
@@ -204,8 +230,8 @@ async function main(): Promise<void> {
           vector: session.semantic.health(),
           note:
             opts.cmd === "init"
-              ? "init runs online-backfill; daemon_stop_required=false; primary may stay up"
-              : "daemon_stop_required=false; replays inbox/done + drain; primary may stay up",
+              ? "init runs online-backfill (resumable + progress on stderr); daemon_stop_required=false"
+              : "online-backfill is resumable; progress on stderr; daemon_stop_required=false",
         },
         null,
         2,

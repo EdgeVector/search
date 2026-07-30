@@ -12,6 +12,7 @@ import { VectorIndex } from "../src/vector/vector_index.ts";
 import { MINILM_L6_V2_DIMS } from "../src/vector/embedder.ts";
 import { applyBatchBoth, openSearchSession } from "../src/semantic.ts";
 import type { IndexChangeBatch } from "../src/types.ts";
+import { createProgressReporter, silentProgress } from "../src/progress.ts";
 
 describe("field_policy", () => {
   test("excludes secret and no_index; requires word when classifications present", () => {
@@ -115,6 +116,125 @@ describe("VectorIndex structural schema scope", () => {
       exact: true,
     });
     expect(exactFail).toEqual([]);
+  });
+});
+
+describe("progress reporter", () => {
+  test("silent and quiet reporters are no-ops", () => {
+    const s = silentProgress();
+    s.startPhase("x", 10);
+    s.tick({ phase: "x", done: 1, total: 10 });
+    s.finish("ok");
+    const q = createProgressReporter({ quiet: true });
+    q.startPhase("y", 1);
+    q.tick({ phase: "y", done: 1, total: 1 });
+    q.finish();
+  });
+});
+
+describe("resumable indexPlainDocs", () => {
+  test("second pass skips fresh vectors and re-embed only on text change", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "resume-"));
+    const emb = new DeterministicMiniLmCompatEmbedder();
+    const plane = new SemanticSearchPlane({
+      searchHome: dir,
+      embedder: emb,
+      healthDetail: "test",
+    });
+    const docs = [
+      {
+        schema_name: "S",
+        key_hash: "k1",
+        key_range: null as string | null,
+        text: "resume-marker-alpha-111",
+        mutation_id: "m1",
+      },
+      {
+        schema_name: "S",
+        key_hash: "k2",
+        key_range: null as string | null,
+        text: "resume-marker-beta-222",
+        mutation_id: "m2",
+      },
+    ];
+    const first = await plane.indexPlainDocs(docs, { flushEvery: 1 });
+    expect(first.embedded).toBe(2);
+    expect(first.skipped).toBe(0);
+    expect(first.flushes).toBeGreaterThanOrEqual(1);
+    expect(plane.health().vectors).toBe(2);
+
+    const second = await plane.indexPlainDocs(docs, { flushEvery: 1 });
+    expect(second.embedded).toBe(0);
+    expect(second.skipped).toBe(2);
+
+    const changed = await plane.indexPlainDocs(
+      [
+        {
+          ...docs[0]!,
+          text: "resume-marker-alpha-111-CHANGED",
+          mutation_id: "m1b",
+        },
+        docs[1]!,
+      ],
+      { flushEvery: 1 },
+    );
+    expect(changed.embedded).toBe(1);
+    expect(changed.skipped).toBe(1);
+
+    // force re-embeds even when fresh
+    const forced = await plane.indexPlainDocs(docs, { force: true, flushEvery: 10 });
+    expect(forced.embedded).toBe(2);
+    expect(forced.skipped).toBe(0);
+  });
+
+  test("persist mid-run so reopen loads progress", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "resume-disk-"));
+    const emb = new DeterministicMiniLmCompatEmbedder();
+    const path = join(dir, "vector-index.v1.json");
+    const plane1 = new SemanticSearchPlane({
+      searchHome: dir,
+      vectorStorePath: path,
+      embedder: emb,
+    });
+    await plane1.indexPlainDocs(
+      [
+        {
+          schema_name: "S",
+          key_hash: "p1",
+          key_range: null,
+          text: "persist-checkpoint-doc-one",
+          mutation_id: "p1",
+        },
+      ],
+      { flushEvery: 1 },
+    );
+    const plane2 = new SemanticSearchPlane({
+      searchHome: dir,
+      vectorStorePath: path,
+      embedder: new DeterministicMiniLmCompatEmbedder(),
+    });
+    const r = await plane2.indexPlainDocs(
+      [
+        {
+          schema_name: "S",
+          key_hash: "p1",
+          key_range: null,
+          text: "persist-checkpoint-doc-one",
+          mutation_id: "p1",
+        },
+        {
+          schema_name: "S",
+          key_hash: "p2",
+          key_range: null,
+          text: "persist-checkpoint-doc-two",
+          mutation_id: "p2",
+        },
+      ],
+      { flushEvery: 1 },
+    );
+    expect(r.skipped).toBe(1);
+    expect(r.embedded).toBe(1);
+    expect(plane2.health().vectors).toBe(2);
   });
 });
 

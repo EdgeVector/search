@@ -184,6 +184,54 @@ export class VectorIndex {
     return hits;
   }
 
+  get(
+    schema: string,
+    hash: string | null,
+    range: string | null,
+    fragment = "body",
+  ): VectorRecord | undefined {
+    return this.records.get(recId(schema, hash, range, fragment));
+  }
+
+  /**
+   * True when an existing vector is still valid for this text/mutation under
+   * the same embedder — used so online-backfill can skip re-embedding.
+   */
+  isFresh(
+    embedder: Embedder,
+    args: {
+      schema_name: string;
+      key_hash: string | null;
+      key_range: string | null;
+      fragment_key?: string;
+      text: string;
+      mutation_id?: string;
+    },
+  ): boolean {
+    const fragment = args.fragment_key ?? "body";
+    const text = args.text.trim();
+    if (!text) return false;
+    const prev = this.get(
+      args.schema_name,
+      args.key_hash,
+      args.key_range,
+      fragment,
+    );
+    if (!prev) return false;
+    if (prev.embedder_id !== embedder.id) return false;
+    if (prev.vector.length !== embedder.dimensions) return false;
+    // Prefer mutation identity when both sides have it (product writes).
+    if (args.mutation_id && prev.mutation_id) {
+      return prev.mutation_id === args.mutation_id && prev.text === text;
+    }
+    return prev.text === text;
+  }
+
+  /**
+   * Embed and upsert. Returns whether a new embed ran (`embedded`) or an
+   * existing fresh vector was kept (`skipped`). With `skipIfFresh` (default
+   * false for live apply; true for backfill), already-indexed docs are free.
+   */
   async indexText(
     embedder: Embedder,
     args: {
@@ -194,12 +242,16 @@ export class VectorIndex {
       text: string;
       mutation_id?: string;
     },
-  ): Promise<void> {
+    opts?: { skipIfFresh?: boolean },
+  ): Promise<"embedded" | "skipped" | "removed"> {
     const fragment = args.fragment_key ?? "body";
     const text = args.text.trim();
     if (!text) {
       this.removeByKey(args.schema_name, args.key_hash, args.key_range);
-      return;
+      return "removed";
+    }
+    if (opts?.skipIfFresh && this.isFresh(embedder, { ...args, text })) {
+      return "skipped";
     }
     const [vec] = await embedder.embed([text]);
     this.upsert({
@@ -213,6 +265,7 @@ export class VectorIndex {
       vector: vec!,
       mutation_id: args.mutation_id,
     });
+    return "embedded";
   }
 
   persist(): void {

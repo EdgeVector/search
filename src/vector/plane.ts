@@ -89,6 +89,7 @@ export class SemanticSearchPlane {
   async applyBatch(
     batch: IndexChangeBatch,
     classifications?: FieldClassifications | null,
+    opts?: { skipIfFresh?: boolean },
   ): Promise<number> {
     await this.ensureReady();
     if (!this.embedder || this.state === "disabled") return 0;
@@ -108,15 +109,19 @@ export class SemanticSearchPlane {
         classifications,
       );
       const text = fieldsToIndexText(fields);
-      await this.index.indexText(this.embedder, {
-        schema_name: batch.schema_name,
-        key_hash: ch.key_value.hash,
-        key_range: ch.key_value.range,
-        fragment_key: "body",
-        text,
-        mutation_id: ch.mutation_id,
-      });
-      n++;
+      const action = await this.index.indexText(
+        this.embedder,
+        {
+          schema_name: batch.schema_name,
+          key_hash: ch.key_value.hash,
+          key_range: ch.key_value.range,
+          fragment_key: "body",
+          text,
+          mutation_id: ch.mutation_id,
+        },
+        { skipIfFresh: opts?.skipIfFresh },
+      );
+      if (action !== "removed") n++;
     }
     this.index.persist();
     return n;
@@ -131,6 +136,11 @@ export class SemanticSearchPlane {
   /**
    * Re-embed plain text docs (e.g. from keyword plane) while the host daemon
    * stays up — online backfill path without exclusive store open.
+   *
+   * Resumable: skips vectors that are already fresh under the current embedder
+   * (same mutation_id + text, or same text when mutation_id is absent) and
+   * flushes the durable vector snapshot every `flushEvery` embeds (default 50)
+   * so Ctrl-C keeps progress.
    */
   async indexPlainDocs(
     docs: Array<{
@@ -140,23 +150,78 @@ export class SemanticSearchPlane {
       text: string;
       mutation_id?: string;
     }>,
-  ): Promise<number> {
+    opts?: {
+      skipIfFresh?: boolean;
+      /** Persist after this many *new* embeds (not skips). Default 50. */
+      flushEvery?: number;
+      force?: boolean;
+      /** Called after each doc (including skips) for progress bars. */
+      onProgress?: (p: {
+        done: number;
+        total: number;
+        embedded: number;
+        skipped: number;
+        flushes: number;
+      }) => void;
+    },
+  ): Promise<{
+    embedded: number;
+    skipped: number;
+    removed: number;
+    flushes: number;
+  }> {
     await this.ensureReady();
-    if (!this.embedder) return 0;
-    let n = 0;
-    for (const d of docs) {
-      if (!d.text.trim()) continue;
-      await this.index.indexText(this.embedder, {
-        schema_name: d.schema_name,
-        key_hash: d.key_hash,
-        key_range: d.key_range,
-        text: d.text,
-        mutation_id: d.mutation_id,
-      });
-      n++;
+    if (!this.embedder) {
+      return { embedded: 0, skipped: 0, removed: 0, flushes: 0 };
     }
-    this.index.persist();
-    return n;
+    const skipIfFresh = opts?.force ? false : (opts?.skipIfFresh ?? true);
+    const flushEvery = Math.max(1, opts?.flushEvery ?? 50);
+    const total = docs.length;
+    let embedded = 0;
+    let skipped = 0;
+    let removed = 0;
+    let flushes = 0;
+    let sinceFlush = 0;
+    let done = 0;
+    for (const d of docs) {
+      if (!d.text.trim()) {
+        done++;
+        opts?.onProgress?.({ done, total, embedded, skipped, flushes });
+        continue;
+      }
+      const action = await this.index.indexText(
+        this.embedder,
+        {
+          schema_name: d.schema_name,
+          key_hash: d.key_hash,
+          key_range: d.key_range,
+          text: d.text,
+          mutation_id: d.mutation_id,
+        },
+        { skipIfFresh },
+      );
+      if (action === "skipped") {
+        skipped++;
+      } else if (action === "removed") {
+        removed++;
+      } else {
+        embedded++;
+        sinceFlush++;
+        if (sinceFlush >= flushEvery) {
+          this.index.persist();
+          flushes++;
+          sinceFlush = 0;
+        }
+      }
+      done++;
+      opts?.onProgress?.({ done, total, embedded, skipped, flushes });
+    }
+    if (sinceFlush > 0) {
+      this.index.persist();
+      flushes++;
+    }
+    opts?.onProgress?.({ done, total, embedded, skipped, flushes });
+    return { embedded, skipped, removed, flushes };
   }
 }
 
