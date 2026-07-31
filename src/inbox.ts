@@ -69,6 +69,3 @@ export async function drainInbox(
   }
   return result;
 }
-
-/** @deprecated alias — same as drainInbox (semantic-only era). */
-export const drainInboxAsync = drainInbox;
