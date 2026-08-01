@@ -12,7 +12,7 @@ import { VectorIndex } from "../src/vector/vector_index.ts";
 import { MINILM_L6_V2_DIMS } from "../src/vector/embedder.ts";
 import { applyBatch, onlineBackfill, openSearchSession } from "../src/semantic.ts";
 import type { IndexChangeBatch } from "../src/types.ts";
-import { createProgressReporter, silentProgress } from "../src/progress.ts";
+import { createProgressReporter } from "../src/progress.ts";
 import { drainInbox } from "../src/inbox.ts";
 import {
   defaultLiveBackfillCheckpointPath,
@@ -127,7 +127,7 @@ describe("VectorIndex structural schema scope", () => {
 
 describe("progress reporter", () => {
   test("silent and quiet reporters are no-ops", () => {
-    const s = silentProgress();
+    const s = createProgressReporter({ quiet: true });
     s.startPhase("x", 10);
     s.tick({ phase: "x", done: 1, total: 10 });
     s.finish("ok");
@@ -311,7 +311,7 @@ describe("onlineBackfill live source", () => {
         liveCheckpointFile: checkpoint,
         maxLivePages: 1,
         flushEvery: 1,
-        progress: silentProgress(),
+        progress: createProgressReporter({ quiet: true }),
       });
       expect(first.live?.live_completed).toBe(false);
       expect(first.live?.live_records).toBe(1);
@@ -324,7 +324,7 @@ describe("onlineBackfill live source", () => {
         liveSource: source,
         liveCheckpointFile: checkpoint,
         flushEvery: 1,
-        progress: silentProgress(),
+        progress: createProgressReporter({ quiet: true }),
       });
       expect(second.live?.live_completed).toBe(true);
       expect(second.live?.live_records).toBe(1);
@@ -346,7 +346,7 @@ describe("onlineBackfill live source", () => {
       const third = await onlineBackfill(session2, {
         liveSource: source,
         liveCheckpointFile: checkpoint,
-        progress: silentProgress(),
+        progress: createProgressReporter({ quiet: true }),
       });
       expect(third.live?.live_pages).toBe(0);
     } finally {

@@ -130,12 +130,3 @@ export function createProgressReporter(opts: ProgressOpts = {}): ProgressReporte
     },
   };
 }
-
-/** No-op reporter for tests / quiet. */
-export function silentProgress(): ProgressReporter {
-  return {
-    startPhase() {},
-    tick() {},
-    finish() {},
-  };
-}
