@@ -15,7 +15,7 @@ import {
 } from "./vector/field_policy.ts";
 import type { ProgressReporter } from "./progress.ts";
 
-export type LiveBackfillRecord = {
+type LiveBackfillRecord = {
   schema_name: string;
   key_hash: string | null;
   key_range?: string | null;
@@ -25,7 +25,7 @@ export type LiveBackfillRecord = {
   fields_and_values?: Record<string, unknown>;
 };
 
-export type LiveBackfillPage = {
+type LiveBackfillPage = {
   records: LiveBackfillRecord[];
   next_cursor?: string | null;
   total?: number;
