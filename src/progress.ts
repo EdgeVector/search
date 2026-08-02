@@ -3,7 +3,7 @@
  * Always writes to stderr so stdout stays JSON for scripts.
  */
 
-export type ProgressTick = {
+type ProgressTick = {
   phase: string;
   done: number;
   total: number;
