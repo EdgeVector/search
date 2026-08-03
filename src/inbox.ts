@@ -15,7 +15,7 @@ import {
 import { join } from "node:path";
 import type { IndexChangeBatch } from "./types.ts";
 
-export type DrainResult = {
+type DrainResult = {
   files: number;
   changes: number;
   errors: string[];
@@ -27,7 +27,7 @@ function isBatch(x: unknown): x is IndexChangeBatch {
   return typeof o.schema_name === "string" && Array.isArray(o.changes);
 }
 
-export type DrainOptions = {
+type DrainOptions = {
   /** Called for each valid batch before the file moves to done/. */
   onBatch?: (batch: IndexChangeBatch) => void | Promise<void>;
 };
