@@ -8,9 +8,9 @@ import {
 } from "./live_backfill.ts";
 import { openSearchSession, type SearchSession } from "./semantic.ts";
 
-export type DoctorLevel = "ok" | "warn" | "error" | "skipped";
+type DoctorLevel = "ok" | "warn" | "error" | "skipped";
 
-export type DoctorCheck = {
+type DoctorCheck = {
   name: string;
   level: DoctorLevel;
   summary: string;
