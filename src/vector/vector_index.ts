@@ -131,7 +131,6 @@ export class VectorIndex {
   search(queryVec: number[], opts: SemanticQueryOpts = {}): SemanticHit[] {
     const k = opts.k ?? 20;
     const minScore = opts.min_score ?? Number.NEGATIVE_INFINITY;
-    const exact = opts.exact === true;
     const allowed =
       opts.schemas && opts.schemas.length > 0
         ? new Set(opts.schemas)
