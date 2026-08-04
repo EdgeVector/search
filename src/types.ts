@@ -23,16 +23,6 @@ export type IndexChangeBatch = {
   changes: IndexChange[];
 };
 
-export type SearchQueryOptions = {
-  k?: number;
-  /** Restrict to these schema names / identity hashes. */
-  schemas?: string[];
-  /** Substring gate on hit text. */
-  exact?: boolean;
-  /** Minimum similarity score. */
-  min_score?: number;
-};
-
 export type SemanticSearchHit = {
   schema_name: string;
   key_hash: string | null;
