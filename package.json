@@ -1,7 +1,6 @@
 {
   "name": "@edgevector/search",
   "version": "0.2.0",
-  "private": true,
   "type": "module",
   "bin": {
     "search": "./bin/search"
@@ -25,5 +24,23 @@
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5.6.0"
-  }
+  },
+  "license": "MIT",
+  "description": "LastDB Search app \u2014 semantic MiniLM plane outside Mini (local regenerable vector index)",
+  "homepage": "https://github.com/EdgeVector/search#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EdgeVector/search.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EdgeVector/search/issues"
+  },
+  "keywords": [
+    "lastdb",
+    "search",
+    "semantic-search",
+    "minilm",
+    "embeddings",
+    "edgevector"
+  ]
 }

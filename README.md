@@ -78,3 +78,10 @@ const hits = await semanticQuery(session, "query", { k: 10 });
 host-track refresh search
 # post-install: npm install (sharp + transformers) + PATH link for search
 ```
+
+## License
+
+MIT © 2026 Edge Vector Foundation. See [LICENSE](./LICENSE).
+
+**GitHub** is a public read-only mirror (`https://github.com/EdgeVector/search`).
+Canonical source of truth: `lastdb:///search` (LastGit). Do not open merge PRs on GitHub.
