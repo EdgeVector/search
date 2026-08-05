@@ -22,14 +22,3 @@ export type IndexChangeBatch = {
   searchable_fields?: string[] | null;
   changes: IndexChange[];
 };
-
-export type SemanticSearchHit = {
-  schema_name: string;
-  key_hash: string | null;
-  key_range: string | null;
-  fragment_key: string;
-  score: number;
-  text: string;
-  mutation_id?: string;
-  match_type: "semantic";
-};
