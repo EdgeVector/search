@@ -6,7 +6,6 @@
         "LICENSE",
         "README.md",
         "bin",
-        "package-lock.json",
         "package.json",
         "src",
         "tsconfig.json"
