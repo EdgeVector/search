@@ -1,0 +1,16 @@
+{
+  "artifacts": [
+    {
+      "app": "search",
+      "paths": [
+        "LICENSE",
+        "README.md",
+        "bin",
+        "package-lock.json",
+        "package.json",
+        "src",
+        "tsconfig.json"
+      ]
+    }
+  ]
+}
