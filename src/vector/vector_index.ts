@@ -76,6 +76,8 @@ const COMPACT_FLOOR_BYTES = 8 * 1024 * 1024;
 export class VectorIndex {
   private records = new Map<string, VectorRecord>();
   private bySchema = new Map<string, Set<string>>();
+  /** Live count of records per embedder_id — backs the single-embedder invariant. */
+  private embedderCounts = new Map<string, number>();
   /** Ids upserted since the last flush. */
   private dirty = new Set<string>();
   /** Ids removed since the last flush. */
@@ -110,22 +112,31 @@ export class VectorIndex {
    * coverage (see field_policy note on deterministic vectors). */
   embedderBreakdown(): Record<string, number> {
     const out: Record<string, number> = {};
-    for (const rec of this.records.values()) {
-      out[rec.embedder_id] = (out[rec.embedder_id] ?? 0) + 1;
-    }
+    for (const [id, n] of this.embedderCounts) out[id] = n;
     return out;
   }
 
   clear(): void {
     this.records.clear();
     this.bySchema.clear();
+    this.embedderCounts.clear();
     this.dirty.clear();
     this.removed.clear();
   }
 
+  private trackEmbedder(id: string, delta: number): void {
+    if (!id) return;
+    const n = (this.embedderCounts.get(id) ?? 0) + delta;
+    if (n <= 0) this.embedderCounts.delete(id);
+    else this.embedderCounts.set(id, n);
+  }
+
   upsert(rec: VectorRecord): void {
     const prev = this.records.get(rec.id);
-    if (prev) this.unlinkSchema(prev.schema_name, rec.id);
+    if (prev) {
+      this.unlinkSchema(prev.schema_name, rec.id);
+      this.trackEmbedder(prev.embedder_id, -1);
+    }
     this.records.set(rec.id, rec);
     let set = this.bySchema.get(rec.schema_name);
     if (!set) {
@@ -133,6 +144,7 @@ export class VectorIndex {
       this.bySchema.set(rec.schema_name, set);
     }
     set.add(rec.id);
+    this.trackEmbedder(rec.embedder_id, 1);
     this.embedderId = rec.embedder_id;
     this.dimensions = rec.vector.length;
     this.dirty.add(rec.id);
@@ -154,6 +166,7 @@ export class VectorIndex {
         rec.key_range === range
       ) {
         this.unlinkSchema(rec.schema_name, id);
+        this.trackEmbedder(rec.embedder_id, -1);
         this.records.delete(id);
         this.dirty.delete(id);
         this.removed.add(id);
@@ -161,6 +174,33 @@ export class VectorIndex {
       }
     }
     return n;
+  }
+
+  /**
+   * Evict every record whose embedder_id matches `match` — the reindex half
+   * of the eviction policy: a mismatched embedder_id can never be repaired
+   * in place (a stale vector is meaningless in the new model's space), so the
+   * only correct move is delete-and-let-the-drainer-reembed. Prefer this over
+   * a bespoke migration; it reuses the same skip-if-fresh backfill path every
+   * other reindex uses (see docs/embedder-eviction-policy.md).
+   */
+  evictByEmbedder(match: string | ((embedderId: string) => boolean)): {
+    removed: number;
+    removedIds: string[];
+  } {
+    const test =
+      typeof match === "string" ? (id: string) => id === match : match;
+    const removedIds: string[] = [];
+    for (const [id, rec] of [...this.records]) {
+      if (!test(rec.embedder_id)) continue;
+      this.unlinkSchema(rec.schema_name, id);
+      this.trackEmbedder(rec.embedder_id, -1);
+      this.records.delete(id);
+      this.dirty.delete(id);
+      this.removed.add(id);
+      removedIds.push(id);
+    }
+    return { removed: removedIds.length, removedIds };
   }
 
   private unlinkSchema(schema: string, id: string): void {
@@ -298,6 +338,18 @@ export class VectorIndex {
     if (opts?.skipIfFresh && this.isFresh(embedder, { ...args, text })) {
       return "skipped";
     }
+    const otherEmbedder = [...this.embedderCounts.keys()].find(
+      (id) => id !== embedder.id,
+    );
+    if (otherEmbedder) {
+      throw new Error(
+        `Refusing to write embedder_id=${embedder.id}: this index already holds ` +
+          `${this.embedderCounts.get(otherEmbedder)} vector(s) with embedder_id=${otherEmbedder}. ` +
+          `A single index must hold exactly one embedder's vectors — evict the stale embedder ` +
+          `(VectorIndex.evictByEmbedder / \`search reindex-embedder\`) and let the drainer reembed ` +
+          `before switching embedders on this index.`,
+      );
+    }
     if (embedder.id.includes("+deterministic") && isProductionSearchHome(this.searchHome)) {
       throw new Error(
         `Refusing to write a deterministic vector (embedder_id=${embedder.id}) into the ` +
@@ -381,6 +433,7 @@ export class VectorIndex {
         const rec = this.records.get(op.id);
         if (rec) {
           this.unlinkSchema(rec.schema_name, op.id);
+          this.trackEmbedder(rec.embedder_id, -1);
           this.records.delete(op.id);
         }
       }
