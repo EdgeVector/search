@@ -18,7 +18,11 @@ import {
   semanticQuery,
 } from "./semantic.ts";
 import { createProgressReporter } from "./progress.ts";
-import { createHttpLiveBackfillSource } from "./live_backfill.ts";
+import {
+  createHttpLiveBackfillSource,
+  defaultLiveBackfillCheckpointPath,
+} from "./live_backfill.ts";
+import { removeIfPresent } from "./vector/store.ts";
 import { runSearchDoctor } from "./doctor.ts";
 import { inboxStatus } from "./inbox.ts";
 import { defaultCorpusCountSource } from "./vector/corpus_counts.ts";
@@ -36,6 +40,7 @@ function usage(): never {
   search semantic-query <text> ...   # alias of query
   search apply --file <batch.json> [--last-db-home DIR]
   search rebuild --batches-dir DIR [--last-db-home DIR]
+  search reindex-embedder <embedder-id-substring> [--last-db-home DIR] [--checkpoint-file FILE] [--keep-checkpoint] [--json]
   search doctor [--last-db-home DIR] [--live-url URL] [--checkpoint-file FILE] [--strict]
   search bootstrap [--last-db-home DIR] [--max-done N] [--live-url URL] [--live-page-size N] [--checkpoint-file FILE] [--flush-every N] [--force] [--quiet]
   search online-backfill [--last-db-home DIR] [--max-done N] [--live-url URL] [--live-page-size N] [--checkpoint-file FILE] [--flush-every N] [--force] [--quiet]
@@ -66,6 +71,7 @@ function parseArgs(argv: string[]) {
   let force = false;
   let quiet = false;
   let strict = false;
+  let keepCheckpoint = false;
   const schemas: string[] = [];
   const positionals: string[] = [];
   for (let i = 0; i < rest.length; i++) {
@@ -102,6 +108,8 @@ function parseArgs(argv: string[]) {
       quiet = true;
     } else if (a === "--strict") {
       strict = true;
+    } else if (a === "--keep-checkpoint") {
+      keepCheckpoint = true;
     } else if (a.startsWith("-")) {
       console.error(`unknown flag ${a}`);
       usage();
@@ -126,6 +134,7 @@ function parseArgs(argv: string[]) {
     force,
     quiet,
     strict,
+    keepCheckpoint,
     schemas,
     positionals,
   };
@@ -197,6 +206,51 @@ async function main(): Promise<void> {
     });
     console.log(JSON.stringify(report, null, 2));
     if (opts.strict && !report.ok) process.exit(1);
+    return;
+  }
+
+  if (opts.cmd === "reindex-embedder") {
+    const matchArg = opts.positionals[0];
+    if (!matchArg) {
+      console.error(
+        "search reindex-embedder requires an embedder_id substring to evict, e.g. +deterministic",
+      );
+      process.exit(2);
+    }
+    // Eviction is pure deletion — do not ensureReady()/init the embedder, so
+    // this never requires a neural model just to remove stale vectors.
+    const session = openSearchSession({ lastDbHome: opts.lastDbHome });
+    const before = session.semantic.index.embedderBreakdown();
+    const { removed, removedIds } = session.semantic.index.evictByEmbedder(
+      (id) => id.includes(matchArg),
+    );
+    session.semantic.index.persist();
+    const checkpointFile =
+      opts.checkpointFile ?? defaultLiveBackfillCheckpointPath(session.paths);
+    let checkpointReset = false;
+    if (!opts.keepCheckpoint) {
+      removeIfPresent(checkpointFile);
+      checkpointReset = true;
+    }
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          matched: matchArg,
+          removed,
+          removed_ids: opts.json ? removedIds : undefined,
+          embedder_breakdown_before: before,
+          embedder_breakdown_after: session.semantic.index.embedderBreakdown(),
+          checkpoint_file: checkpointFile,
+          checkpoint_reset: checkpointReset,
+          note: checkpointReset
+            ? "Run `search bootstrap` (or wait for the scheduled drain/backfill) to reembed the evicted records under the current embedder."
+            : "Checkpoint kept — evicted records will only reembed once their source batches replay or the checkpoint is reset.",
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
