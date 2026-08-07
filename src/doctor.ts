@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { inboxStatus } from "./inbox.ts";
 import { MINILM_L6_V2_DIMS, MINILM_L6_V2_ID } from "./vector/embedder.ts";
 import {
   createHttpLiveBackfillSource,
@@ -206,6 +207,39 @@ export async function runSearchDoctor(opts?: {
     detail: {
       brain_configured: brainVars,
       fkanban_configured: fkanbanVars,
+    },
+  });
+
+  const inbox = inboxStatus(session.paths.inbox, {
+    now: opts?.now,
+  });
+  const warnDepth = Number(env.SEARCH_INBOX_WARN_DEPTH ?? 2000);
+  const errorDepth = Number(env.SEARCH_INBOX_ERROR_DEPTH ?? 20000);
+  const backlogLevel: DoctorLevel =
+    inbox.pending_files >= errorDepth
+      ? "error"
+      : inbox.pending_files >= warnDepth
+        ? "warn"
+        : "ok";
+  checks.push({
+    name: "inbox_backlog",
+    level: backlogLevel,
+    summary:
+      backlogLevel === "ok"
+        ? `Inbox backlog is bounded (${inbox.pending_files} pending)`
+        : `Inbox backlog is undrained (${inbox.pending_files} pending, floor ${
+            backlogLevel === "error" ? errorDepth : warnDepth
+          })`,
+    next_action:
+      backlogLevel === "ok"
+        ? undefined
+        : "Run search drain (or wait for the scheduled search-inbox-drain routine) to catch up the backlog.",
+    detail: {
+      inbox: session.paths.inbox,
+      pending: inbox.pending_files,
+      oldest_pending_batch_age_seconds: inbox.oldest_pending_batch_age_seconds,
+      warn_floor: warnDepth,
+      error_floor: errorDepth,
     },
   });
 

@@ -589,4 +589,41 @@ describe("search doctor", () => {
     expect(report.status).toBe("degraded");
     expect(report.checks.find((c) => c.name === "lastdb_live_backfill")?.level).toBe("error");
   });
+
+  test("reports undrained inbox backlog above the error floor as degraded", async () => {
+    const home = mkdtempSync(join(tmpdir(), "doctor-backlog-"));
+    const session = openSearchSession({
+      lastDbHome: home,
+      embedder: new DeterministicMiniLmCompatEmbedder(),
+    });
+    mkdirSync(session.paths.inbox, { recursive: true });
+    for (let i = 0; i < 3; i++) {
+      writeFileSync(join(session.paths.inbox, `b${i}.json`), "{}");
+    }
+    const report = await runSearchDoctor({
+      session,
+      env: { SEARCH_INBOX_WARN_DEPTH: "1", SEARCH_INBOX_ERROR_DEPTH: "2" },
+      now: () => new Date(0),
+    });
+    const backlog = report.checks.find((c) => c.name === "inbox_backlog");
+    expect(report.status).toBe("degraded");
+    expect(backlog?.level).toBe("error");
+    expect(backlog?.detail?.pending).toBe(3);
+  });
+
+  test("reports inbox backlog below the warn floor as ok", async () => {
+    const home = mkdtempSync(join(tmpdir(), "doctor-backlog-ok-"));
+    const session = openSearchSession({
+      lastDbHome: home,
+      embedder: new DeterministicMiniLmCompatEmbedder(),
+    });
+    const report = await runSearchDoctor({
+      session,
+      env: {},
+      now: () => new Date(0),
+    });
+    const backlog = report.checks.find((c) => c.name === "inbox_backlog");
+    expect(backlog?.level).toBe("ok");
+    expect(backlog?.detail?.pending).toBe(0);
+  });
 });
