@@ -11,8 +11,9 @@
  * machine on 2026-08-07.
  */
 
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { cosine, type Embedder } from "./embedder.ts";
+import { isProductionSearchHome } from "../paths.ts";
 import {
   appendOps,
   fileSize,
@@ -81,12 +82,15 @@ export class VectorIndex {
   private removed = new Set<string>();
   readonly storePath: string;
   readonly paths: StorePaths;
+  /** Search home used only for the production-write guard below, not I/O. */
+  readonly searchHome: string;
   embedderId = "";
   dimensions = 0;
 
-  constructor(storePath: string) {
+  constructor(storePath: string, searchHome?: string) {
     this.storePath = storePath;
     this.paths = storePaths(storePath);
+    this.searchHome = searchHome ?? dirname(storePath);
     this.load();
   }
 
@@ -293,6 +297,14 @@ export class VectorIndex {
     }
     if (opts?.skipIfFresh && this.isFresh(embedder, { ...args, text })) {
       return "skipped";
+    }
+    if (embedder.id.includes("+deterministic") && isProductionSearchHome(this.searchHome)) {
+      throw new Error(
+        `Refusing to write a deterministic vector (embedder_id=${embedder.id}) into the ` +
+          `production Search index home (${this.searchHome}). Deterministic embeddings are ` +
+          `test/CI-only; this check is independent of SEARCH_EMBEDDER/SEARCH_ALLOW_DETERMINISTIC ` +
+          `so it cannot be routed around by env config.`,
+      );
     }
     const [vec] = await embedder.embed([text]);
     this.upsert({
