@@ -11,9 +11,46 @@ import {
   readFileSync,
   renameSync,
   mkdirSync,
+  statSync,
 } from "node:fs";
 import { join } from "node:path";
 import type { IndexChangeBatch } from "./types.ts";
+
+export type InboxStatus = {
+  pending_files: number;
+  oldest_pending_batch_age_seconds: number | null;
+};
+
+/**
+ * Pending file count and the age of the oldest undrained batch. Both are
+ * leading indicators of a stalled drain — the inbox backlog that produced
+ * this coverage tool grew silently for a week with nothing surfacing depth
+ * or age (see papercut-search-app-inbox-never-drained...).
+ */
+export function inboxStatus(
+  inboxDir: string,
+  opts?: { now?: () => Date },
+): InboxStatus {
+  if (!existsSync(inboxDir)) return { pending_files: 0, oldest_pending_batch_age_seconds: null };
+  const now = (opts?.now ?? (() => new Date()))();
+  const files = readdirSync(inboxDir).filter(
+    (f) => f.endsWith(".json") && !f.startsWith("."),
+  );
+  let oldestMs: number | null = null;
+  for (const f of files) {
+    try {
+      const mtimeMs = statSync(join(inboxDir, f)).mtimeMs;
+      if (oldestMs === null || mtimeMs < oldestMs) oldestMs = mtimeMs;
+    } catch {
+      /* file raced away between readdir and stat */
+    }
+  }
+  return {
+    pending_files: files.length,
+    oldest_pending_batch_age_seconds:
+      oldestMs === null ? null : Math.max(0, (now.getTime() - oldestMs) / 1000),
+  };
+}
 
 type DrainResult = {
   files: number;

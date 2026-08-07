@@ -20,6 +20,13 @@ import {
 import { createProgressReporter } from "./progress.ts";
 import { createHttpLiveBackfillSource } from "./live_backfill.ts";
 import { runSearchDoctor } from "./doctor.ts";
+import { inboxStatus } from "./inbox.ts";
+import { defaultCorpusCountSource } from "./vector/corpus_counts.ts";
+import {
+  computeCoverage,
+  computeEmbedderBreakdown,
+  overallState,
+} from "./coverage.ts";
 
 function usage(): never {
   console.error(`usage:
@@ -132,6 +139,36 @@ async function main(): Promise<void> {
   if (opts.cmd === "status" || opts.cmd === "vector-status") {
     const session = openSearchSession({ lastDbHome: opts.lastDbHome });
     await session.semantic.ensureReady();
+    const vector = session.semantic.health();
+
+    let corpusCounts = null;
+    let corpusError: string | undefined;
+    try {
+      corpusCounts = await defaultCorpusCountSource().fetchCounts();
+    } catch (e) {
+      corpusError = e instanceof Error ? e.message : String(e);
+    }
+    const trackedAppsEnv = process.env.SEARCH_COVERAGE_APPS?.trim();
+    const coverage = computeCoverage(
+      session.semantic.index.countsBySchema(),
+      corpusCounts,
+      {
+        trackedAppIds: trackedAppsEnv
+          ? trackedAppsEnv.split(",").map((s) => s.trim()).filter(Boolean)
+          : undefined,
+      },
+    );
+    if (!coverage.available && corpusError) coverage.note = corpusError;
+    const embedder = computeEmbedderBreakdown(
+      session.semantic.index.embedderBreakdown(),
+    );
+    const inbox = inboxStatus(paths.inbox);
+    const state = overallState({
+      vectorPlaneHealthy: vector.state === "healthy",
+      coverage,
+      embedder,
+    });
+
     console.log(
       JSON.stringify(
         {
@@ -139,7 +176,11 @@ async function main(): Promise<void> {
           inbox: paths.inbox,
           vectorIndexPath: paths.vectorIndexPath,
           plane: "search-app-semantic-v1",
-          vector: session.semantic.health(),
+          state,
+          vector,
+          coverage,
+          embedder,
+          inbox_status: inbox,
         },
         null,
         2,
