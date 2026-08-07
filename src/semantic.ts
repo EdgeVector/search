@@ -73,6 +73,10 @@ export async function onlineBackfill(
   },
 ): Promise<{
   drained_files: number;
+  /** Inbox files still queued when this run's drain stopped. */
+  drain_remaining: number;
+  /** Set when the drain stopped before emptying the inbox — run again. */
+  drain_stopped?: "max_files" | "rss_ceiling" | "aborted";
   batches_replayed: number;
   vectors: number;
   resumable: true;
@@ -91,8 +95,10 @@ export async function onlineBackfill(
   progress?.tick({
     phase: "drain-inbox",
     done: drained.files,
-    total: drained.files,
-    detail: `files=${drained.files}`,
+    total: drained.files + drained.remaining,
+    detail: drained.stopped
+      ? `files=${drained.files} remaining=${drained.remaining} stopped=${drained.stopped}`
+      : `files=${drained.files}`,
   });
 
   let batchesReplayed = 0;
@@ -137,10 +143,13 @@ export async function onlineBackfill(
 
   const health = session.semantic.health();
   progress?.finish(
-    `done batches=${batchesReplayed} live=${live?.live_records ?? 0} vectors=${health.vectors}`,
+    `done batches=${batchesReplayed} live=${live?.live_records ?? 0} vectors=${health.vectors}` +
+      (drained.remaining > 0 ? ` inbox_remaining=${drained.remaining}` : ""),
   );
   return {
     drained_files: drained.files,
+    drain_remaining: drained.remaining,
+    drain_stopped: drained.stopped,
     batches_replayed: batchesReplayed,
     vectors: health.vectors,
     resumable: true,
