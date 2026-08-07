@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
+import { isProductionSearchHome } from "../src/paths.ts";
 import { DeterministicMiniLmCompatEmbedder } from "../src/vector/deterministic.ts";
 import {
   fieldIsIndexable,
@@ -625,5 +626,83 @@ describe("search doctor", () => {
     const backlog = report.checks.find((c) => c.name === "inbox_backlog");
     expect(backlog?.level).toBe("ok");
     expect(backlog?.detail?.pending).toBe(0);
+  });
+});
+
+describe("deterministic embedder cannot reach the production index home", () => {
+  // The real ~/.lastdb/apps/search path — constructed the same way
+  // isProductionSearchHome does, but I/O below always targets a tmpdir
+  // storePath, so these tests never touch a real user's LastDB data.
+  const prodHome = join(homedir(), ".lastdb", "apps", "search");
+
+  test("isProductionSearchHome matches only the real home, not overrides", () => {
+    expect(isProductionSearchHome(prodHome)).toBe(true);
+    expect(isProductionSearchHome(join(prodHome, ""))).toBe(true);
+    expect(isProductionSearchHome(mkdtempSync(join(tmpdir(), "not-prod-")))).toBe(
+      false,
+    );
+    expect(isProductionSearchHome(join(homedir(), ".lastdb", "apps", "other"))).toBe(
+      false,
+    );
+  });
+
+  test("VectorIndex.indexText refuses a deterministic write against the production home", async () => {
+    const storeDir = mkdtempSync(join(tmpdir(), "vec-prod-guard-"));
+    const idx = new VectorIndex(join(storeDir, "v.json"), prodHome);
+    const emb = new DeterministicMiniLmCompatEmbedder();
+    await expect(
+      idx.indexText(emb, {
+        schema_name: "schema-A",
+        key_hash: "a1",
+        key_range: null,
+        text: "should never be written",
+      }),
+    ).rejects.toThrow(/production/i);
+    expect(idx.size).toBe(0);
+  });
+
+  test("VectorIndex.indexText allows a deterministic write against a non-production home", async () => {
+    const storeDir = mkdtempSync(join(tmpdir(), "vec-nonprod-"));
+    const idx = new VectorIndex(join(storeDir, "v.json"), storeDir);
+    const emb = new DeterministicMiniLmCompatEmbedder();
+    const action = await idx.indexText(emb, {
+      schema_name: "schema-A",
+      key_hash: "a1",
+      key_range: null,
+      text: "fine in tests",
+    });
+    expect(action).toBe("embedded");
+    expect(idx.size).toBe(1);
+  });
+
+  test("SemanticSearchPlane refuses to go healthy on deterministic mode against the production home", async () => {
+    const storeDir = mkdtempSync(join(tmpdir(), "plane-prod-guard-"));
+    process.env.SEARCH_EMBEDDER = "deterministic";
+    try {
+      const plane = new SemanticSearchPlane({
+        searchHome: prodHome,
+        vectorStorePath: join(storeDir, "v.json"),
+      });
+      await plane.ensureReady();
+      const health = plane.health();
+      expect(health.state).toBe("degraded");
+      expect(health.detail).toMatch(/production/i);
+      const applied = await plane.applyBatch({
+        schema_name: "schema-A",
+        searchable_fields: ["body"],
+        changes: [
+          {
+            kind: "upsert",
+            key_value: { hash: "a1", range: null },
+            mutation_id: "m1",
+            fields_and_values: { body: "must not be written" },
+          },
+        ],
+      });
+      expect(applied).toBe(0);
+      expect(plane.index.size).toBe(0);
+    } finally {
+      delete process.env.SEARCH_EMBEDDER;
+    }
   });
 });

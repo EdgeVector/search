@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
 /**
@@ -57,6 +57,19 @@ export function resolveSearchPaths(opts?: {
       process.env.SEARCH_VECTOR_INDEX?.trim() ||
       join(home, "vector-index.v1.json"),
   };
+}
+
+/**
+ * True when `home` resolves to the real user's production Search index home
+ * (`~/.lastdb/apps/search`) — checked against the actual OS home directory,
+ * not `LASTDB_HOME`/`SEARCH_HOME` overrides, so the check can't be routed
+ * around by env config. Used to structurally refuse deterministic-embedder
+ * writes against production (2,981 deterministic vectors reached production
+ * this way once already — see fastembed.ts / vector_index.ts guards).
+ */
+export function isProductionSearchHome(home: string): boolean {
+  const real = resolve(join(homedir(), ".lastdb", "apps", "search"));
+  return resolve(home) === real;
 }
 
 export function ensureSearchDirs(paths: SearchPaths): void {
