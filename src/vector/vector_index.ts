@@ -94,6 +94,24 @@ export class VectorIndex {
     return this.records.size;
   }
 
+  /** Vector count per schema_name (structural key — usually a schema identity hash). */
+  countsBySchema(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [schema, set] of this.bySchema) out[schema] = set.size;
+    return out;
+  }
+
+  /** Vector count per embedder_id, e.g. distinguishing real neural runs from
+   * the `+deterministic` compat embedder that must never carry production
+   * coverage (see field_policy note on deterministic vectors). */
+  embedderBreakdown(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const rec of this.records.values()) {
+      out[rec.embedder_id] = (out[rec.embedder_id] ?? 0) + 1;
+    }
+    return out;
+  }
+
   clear(): void {
     this.records.clear();
     this.bySchema.clear();

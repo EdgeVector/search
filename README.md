@@ -55,6 +55,20 @@ endpoint. Client config checks report `BRAIN_SEARCH_URL` and
 issues are visible in one report. Offline `search rebuild --batches-dir` remains
 the disaster recovery path when online bootstrap cannot be used.
 
+`search status` / `vector-status` report a machine-readable `state`
+(`healthy` | `degraded`) driven by coverage, not just index consistency:
+per-schema `vectors held / source records available` (from the LastDB schema
+catalog, scoped by default to `SEARCH_COVERAGE_APPS=brain,fbrain,fkanban,kanban`
+— override to track other apps), an inbox `pending_files` / oldest-batch-age
+signal, and an `embedder` breakdown that flags any nonzero
+`+deterministic`-suffixed vector share. `state` goes `degraded` when total or
+any single schema's coverage falls under the floor (`SEARCH_COVERAGE_FLOOR`,
+default `0.95`), when a schema with source records holds zero vectors, or when
+deterministic vectors are present at all. Set `SEARCH_LASTDB_SOCKET` (default
+`~/.lastdb/data/folddb.sock`) or `SEARCH_LASTDB_API_URL` to point coverage at a
+non-default LastDB node; catalog-unreachable reports `coverage.available:
+false` (unknown, not zero).
+
 ## Library
 
 ```ts
