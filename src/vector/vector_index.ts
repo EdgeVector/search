@@ -1,18 +1,29 @@
 /**
- * In-memory + JSON-durable vector index with structural schema scope.
+ * In-memory vector index with structural schema scope, durable via a binary
+ * snapshot plus an append-only op log (see ./store.ts).
+ *
  * Scoped search only scores vectors whose schema_name is in the allow-set
  * (never global top-k then filter).
+ *
+ * `persist()` writes only what changed since the last flush. It used to
+ * re-serialize the entire index to JSON every call, which made a flush cost
+ * O(total index) no matter how few records moved — that is what froze the
+ * machine on 2026-08-07.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { cosine, type Embedder } from "./embedder.ts";
+import {
+  appendOps,
+  fileSize,
+  loadStore,
+  removeIfPresent,
+  storePaths,
+  writeSnapshot,
+  STORE_VERSION,
+  type StoreOp,
+  type StorePaths,
+} from "./store.ts";
 
 export type VectorRecord = {
   id: string;
@@ -53,22 +64,29 @@ function recId(
   return `${schema}\u0000${hash ?? ""}\u0000${range ?? ""}\u0000${fragment}`;
 }
 
-type Snapshot = {
-  version: 1;
-  embedder_id: string;
-  dimensions: number;
-  records: VectorRecord[];
-};
+/**
+ * Compact once the log exceeds this fraction of the snapshot. Bounds total
+ * write amplification to roughly (1 + 1/COMPACT_RATIO) x bytes logged while
+ * keeping compactions rare; the floor stops tiny indexes compacting constantly.
+ */
+const COMPACT_RATIO = 0.5;
+const COMPACT_FLOOR_BYTES = 8 * 1024 * 1024;
 
 export class VectorIndex {
   private records = new Map<string, VectorRecord>();
   private bySchema = new Map<string, Set<string>>();
+  /** Ids upserted since the last flush. */
+  private dirty = new Set<string>();
+  /** Ids removed since the last flush. */
+  private removed = new Set<string>();
   readonly storePath: string;
+  readonly paths: StorePaths;
   embedderId = "";
   dimensions = 0;
 
   constructor(storePath: string) {
     this.storePath = storePath;
+    this.paths = storePaths(storePath);
     this.load();
   }
 
@@ -79,6 +97,8 @@ export class VectorIndex {
   clear(): void {
     this.records.clear();
     this.bySchema.clear();
+    this.dirty.clear();
+    this.removed.clear();
   }
 
   upsert(rec: VectorRecord): void {
@@ -93,6 +113,8 @@ export class VectorIndex {
     set.add(rec.id);
     this.embedderId = rec.embedder_id;
     this.dimensions = rec.vector.length;
+    this.dirty.add(rec.id);
+    this.removed.delete(rec.id);
   }
 
   removeByKey(
@@ -111,6 +133,8 @@ export class VectorIndex {
       ) {
         this.unlinkSchema(rec.schema_name, id);
         this.records.delete(id);
+        this.dirty.delete(id);
+        this.removed.add(id);
         n++;
       }
     }
@@ -267,29 +291,81 @@ export class VectorIndex {
     return "embedded";
   }
 
-  persist(): void {
-    mkdirSync(dirname(this.storePath), { recursive: true, mode: 0o700 });
-    const snap: Snapshot = {
-      version: 1,
+  private header() {
+    return {
+      version: STORE_VERSION,
       embedder_id: this.embedderId,
       dimensions: this.dimensions,
-      records: [...this.records.values()],
     };
-    const tmp = `${this.storePath}.tmp`;
-    writeFileSync(tmp, JSON.stringify(snap));
-    renameSync(tmp, this.storePath);
+  }
+
+  /** Bytes pending in the log — exposed so callers can reason about flushes. */
+  get pendingChanges(): number {
+    return this.dirty.size + this.removed.size;
+  }
+
+  /**
+   * Durably record everything changed since the last call.
+   *
+   * Appends one frame per changed record, then compacts if the log has grown
+   * past COMPACT_RATIO of the snapshot. Cost is O(changed), not O(index).
+   */
+  persist(): void {
+    if (this.dirty.size === 0 && this.removed.size === 0) return;
+
+    const ops: StoreOp[] = [];
+    for (const id of this.dirty) {
+      const rec = this.records.get(id);
+      if (rec) ops.push({ op: "upsert", rec });
+    }
+    for (const id of this.removed) ops.push({ op: "delete", id });
+
+    appendOps(this.paths.log, this.header(), ops);
+    this.dirty.clear();
+    this.removed.clear();
+
+    const logBytes = fileSize(this.paths.log);
+    const snapBytes = fileSize(this.paths.snapshot);
+    if (logBytes > Math.max(COMPACT_FLOOR_BYTES, snapBytes * COMPACT_RATIO)) {
+      this.compact();
+    }
+  }
+
+  /**
+   * Fold the log into a fresh snapshot and drop it. Streams record-by-record,
+   * so peak memory does not scale with snapshot size.
+   */
+  compact(): void {
+    writeSnapshot(this.paths.snapshot, this.header(), this.records.values());
+    removeIfPresent(this.paths.log);
   }
 
   private load(): void {
-    if (!existsSync(this.storePath)) return;
-    try {
-      const snap = JSON.parse(readFileSync(this.storePath, "utf8")) as Snapshot;
-      if (snap.version !== 1 || !Array.isArray(snap.records)) return;
-      this.clear();
-      for (const r of snap.records) this.upsert(r);
-    } catch {
-      /* empty */
+    const loaded = loadStore(this.paths);
+    if (!loaded.header && loaded.ops.length === 0) return;
+
+    this.clear();
+    for (const op of loaded.ops) {
+      if (op.op === "upsert") this.upsert(op.rec);
+      else {
+        const rec = this.records.get(op.id);
+        if (rec) {
+          this.unlinkSchema(rec.schema_name, op.id);
+          this.records.delete(op.id);
+        }
+      }
     }
+    if (loaded.header) {
+      this.embedderId = loaded.header.embedder_id || this.embedderId;
+      this.dimensions = loaded.header.dimensions || this.dimensions;
+    }
+
+    // Replaying is not a change: nothing above needs writing back.
+    this.dirty.clear();
+    this.removed.clear();
+
+    // A legacy v1 index becomes a v2 snapshot once, so the next flush is cheap.
+    if (loaded.migratedFromLegacy) this.compact();
   }
 }
 

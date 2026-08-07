@@ -8,7 +8,7 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { drainInbox } from "./inbox.ts";
+import { drainInbox, DRAIN_ON_QUERY_MAX_FILES } from "./inbox.ts";
 import { ensureSearchDirs, resolveSearchPaths } from "./paths.ts";
 import type { IndexChangeBatch } from "./types.ts";
 import {
@@ -276,6 +276,7 @@ async function main(): Promise<void> {
       onBatch: async (b) => {
         await session.semantic.applyBatch(b);
       },
+      maxFiles: DRAIN_ON_QUERY_MAX_FILES,
     });
     const q = opts.positionals.join(" ").trim();
     if (!q) {
