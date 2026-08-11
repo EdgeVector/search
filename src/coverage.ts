@@ -51,11 +51,6 @@ export type EmbedderBreakdown = {
   deterministic_share: number | null;
 };
 
-export type InboxStatus = {
-  pending_files: number;
-  oldest_pending_batch_age_seconds: number | null;
-};
-
 /** Coverage over the corpus the kernel reports counts for. `null` counts
  * means the catalog was unreachable — coverage is unknown, not zero. */
 export function computeCoverage(
