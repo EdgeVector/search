@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, statSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
