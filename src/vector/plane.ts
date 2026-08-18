@@ -29,7 +29,6 @@ export type SemanticPlaneOptions = {
   embedder?: Embedder;
   /** Force health detail. */
   healthDetail?: string;
-  neural?: boolean;
 };
 
 export class SemanticSearchPlane {
@@ -37,7 +36,6 @@ export class SemanticSearchPlane {
   private embedder: Embedder | null = null;
   private state: VectorHealthState = "disabled";
   private detail = "";
-  private neural = false;
   private initPromise: Promise<void> | null = null;
 
   constructor(private readonly opts: SemanticPlaneOptions) {
@@ -48,7 +46,6 @@ export class SemanticSearchPlane {
       this.embedder = opts.embedder;
       this.state = "healthy";
       this.detail = opts.healthDetail ?? `injected ${opts.embedder.id}`;
-      this.neural = opts.neural ?? false;
     }
   }
 
@@ -74,7 +71,6 @@ export class SemanticSearchPlane {
         }
         this.embedder = created.embedder;
         this.detail = created.healthDetail;
-        this.neural = created.neural;
       }
       // Warm embed
       await this.embedder.embed(["search-plane-warmup"]);
