@@ -22,7 +22,6 @@ records and index-change outbox; it does **not** ship embeddings in default
 ```text
 {LASTDB_HOME}/apps/search/inbox/                 # host-written IndexChangeBatch JSON
 {LASTDB_HOME}/apps/search/vector-index.v1.json   # semantic vector snapshot
-{LASTDB_HOME}/apps/search/index/                 # optional text snapshot for re-embed
 ```
 
 Override: `SEARCH_HOME`, `SEARCH_INBOX`, `SEARCH_VECTOR_INDEX`,
