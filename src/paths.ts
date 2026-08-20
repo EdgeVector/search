@@ -8,15 +8,12 @@ import { homedir } from "node:os";
  * Default layout under a LastDB Mini home:
  *   {LASTDB_HOME}/apps/search/inbox/              — IndexChangeBatch JSON from host
  *   {LASTDB_HOME}/apps/search/vector-index.v1.json — MiniLM vector snapshot
- *   {LASTDB_HOME}/apps/search/index/              — optional text snapshot for re-embed
  *
- * Override with SEARCH_HOME, SEARCH_INBOX, SEARCH_INDEX_DIR, SEARCH_VECTOR_INDEX.
+ * Override with SEARCH_HOME, SEARCH_INBOX, SEARCH_VECTOR_INDEX.
  */
 export type SearchPaths = {
   home: string;
   inbox: string;
-  /** Optional index dir (unused by semantic path; kept for path layout). */
-  indexDir: string;
   /** Durable semantic vector snapshot (regenerable). */
   vectorIndexPath: string;
 };
@@ -36,11 +33,9 @@ export function resolveSearchPaths(opts?: {
 }): SearchPaths {
   if (process.env.SEARCH_HOME?.trim()) {
     const home = process.env.SEARCH_HOME.trim();
-    const indexDir = process.env.SEARCH_INDEX_DIR?.trim() || join(home, "index");
     return {
       home,
       inbox: process.env.SEARCH_INBOX?.trim() || join(home, "inbox"),
-      indexDir,
       vectorIndexPath:
         process.env.SEARCH_VECTOR_INDEX?.trim() ||
         join(home, "vector-index.v1.json"),
@@ -48,11 +43,9 @@ export function resolveSearchPaths(opts?: {
   }
   const lastDb = opts?.lastDbHome || resolveLastDbHome();
   const home = opts?.home || join(lastDb, "apps", "search");
-  const indexDir = process.env.SEARCH_INDEX_DIR?.trim() || join(home, "index");
   return {
     home,
     inbox: process.env.SEARCH_INBOX?.trim() || join(home, "inbox"),
-    indexDir,
     vectorIndexPath:
       process.env.SEARCH_VECTOR_INDEX?.trim() ||
       join(home, "vector-index.v1.json"),
@@ -73,7 +66,7 @@ export function isProductionSearchHome(home: string): boolean {
 }
 
 export function ensureSearchDirs(paths: SearchPaths): void {
-  for (const d of [paths.home, paths.inbox, paths.indexDir]) {
+  for (const d of [paths.home, paths.inbox]) {
     if (!existsSync(d)) mkdirSync(d, { recursive: true, mode: 0o700 });
   }
 }
