@@ -71,7 +71,7 @@ type DrainResult = {
 export const DEFAULT_MAX_FILES = 2000;
 
 /** Default RSS ceiling for a drain process (bytes). Abort cleanly above it. */
-export const DEFAULT_MAX_RSS_BYTES = 2 * 1024 * 1024 * 1024;
+const DEFAULT_MAX_RSS_BYTES = 2 * 1024 * 1024 * 1024;
 
 /**
  * Cap for the opportunistic drain that runs before a query. A query must stay
