@@ -19,7 +19,7 @@ export const DEFAULT_COVERAGE_FLOOR = 0.95;
  * Scoring those as degraded would drown the real signal in noise from apps
  * this tool has no way to affect. Override with SEARCH_COVERAGE_APPS.
  */
-export const DEFAULT_TRACKED_APP_IDS = ["brain", "fbrain", "fkanban", "kanban"];
+const DEFAULT_TRACKED_APP_IDS = ["brain", "fbrain", "fkanban", "kanban"];
 
 export type SchemaCoverage = {
   schema_name: string;
