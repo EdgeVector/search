@@ -21,7 +21,7 @@ export const DEFAULT_COVERAGE_FLOOR = 0.95;
  */
 const DEFAULT_TRACKED_APP_IDS = ["brain", "fbrain", "fkanban", "kanban"];
 
-export type SchemaCoverage = {
+type SchemaCoverage = {
   schema_name: string;
   descriptive_name: string;
   owner_app_id: string | null;
