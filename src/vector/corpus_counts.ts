@@ -67,7 +67,7 @@ export function isContentSchema(descriptiveName: string): boolean {
 }
 
 /** Fetch the schema catalog with counts over an HTTP endpoint (unix socket or TCP). */
-export function createHttpCorpusCountSource(opts: {
+function createHttpCorpusCountSource(opts: {
   socketPath?: string;
   baseUrl?: string;
   timeoutMs?: number;
