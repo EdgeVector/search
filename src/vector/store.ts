@@ -36,7 +36,7 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
-export const STORE_MAGIC = "LSV2";
+const STORE_MAGIC = "LSV2";
 export const STORE_VERSION = 2;
 
 const OP_UPSERT = 1;
