@@ -151,7 +151,7 @@ export function encodeOp(op: StoreOp): Buffer {
  * Decode frames from `offset`. Stops cleanly at the first truncated frame so a
  * torn tail from an interrupted append costs one record, not the whole log.
  */
-export function decodeFrames(buf: Buffer, offset: number): StoreOp[] {
+function decodeFrames(buf: Buffer, offset: number): StoreOp[] {
   const ops: StoreOp[] = [];
   let at = offset;
   while (at + 9 <= buf.length) {
