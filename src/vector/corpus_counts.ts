@@ -13,7 +13,7 @@ import * as http from "node:http";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-export type SchemaCorpusEntry = {
+type SchemaCorpusEntry = {
   descriptive_name: string;
   owner_app_id: string | null;
   record_count: number;
