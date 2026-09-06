@@ -3,10 +3,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-test "$(head -n 1 .last-stack/pr-venue)" = "lastgit"
+test "$(head -n 1 .last-stack/pr-venue)" = "forgejo"
 test ! -e .github/workflows
 
-grep -q "lastdb:///search" README.md
+grep -q "http://localhost:3300/EdgeVector/search.git" README.md
 grep -q "local-only and regenerable" README.md
 grep -q "not CloudSync product data" README.md
 grep -q "semantic" README.md
