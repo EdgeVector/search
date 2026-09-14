@@ -109,7 +109,7 @@ function decodeHeader(
   }
 }
 
-export function encodeOp(op: StoreOp): Buffer {
+function encodeOp(op: StoreOp): Buffer {
   if (op.op === "delete") {
     const meta = Buffer.from(JSON.stringify({ id: op.id }), "utf8");
     const out = Buffer.allocUnsafe(9 + meta.length);
