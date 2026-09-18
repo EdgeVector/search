@@ -467,6 +467,36 @@ describe("session semantic-only apply + drain", () => {
       delete process.env.SEARCH_EMBEDDER;
     }
   });
+
+  test("query drains fresh inbox batches before returning hits", async () => {
+    const home = mkdtempSync(join(tmpdir(), "query-drain-sem-"));
+    const inbox = join(home, "apps", "search", "inbox");
+    mkdirSync(inbox, { recursive: true });
+    const session = openSearchSession({
+      lastDbHome: home,
+      embedder: new DeterministicMiniLmCompatEmbedder(),
+    });
+    const marker = `query-drain-${Date.now()}`;
+    writeFileSync(
+      join(inbox, "fresh.json"),
+      JSON.stringify({
+        schema_name: "S",
+        searchable_fields: ["body"],
+        changes: [
+          {
+            mutation_id: "q1",
+            kind: "upsert",
+            key_value: { hash: "query-h1", range: null },
+            fields_and_values: { body: marker },
+          },
+        ],
+      }),
+    );
+
+    const hits = await session.semantic.query(marker, { k: 3 });
+    expect(hits.length).toBeGreaterThanOrEqual(1);
+    expect(hits[0]!.key_hash).toBe("query-h1");
+  });
 });
 
 describe("search doctor", () => {
