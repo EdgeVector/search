@@ -17,6 +17,19 @@ on:
   push:
     branches: [main]
 
+# Concurrency (papercut-forge-main-publish-starved-by-cancel-in-progress-20260922).
+# Without this block Forgejo cancels every earlier run of this workflow on the
+# same branch when a new event arrives. On main that cancelled each waiting or
+# running publish run when the next PR merged, so under a deep macos-arm64
+# queue no main run finished and host-track never installed merged fixes.
+# PR refs still cancel their superseded runs. On main, cancel-in-progress is
+# false, and Forgejo runs the main runs of this group one after another, in
+# order. Every merge publishes, and an older commit can never promote after a
+# newer one (promote has no ancestry check). Keep runs-on unchanged.
+concurrency:
+  group: forge-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   ci-required:
     name: ci-required
