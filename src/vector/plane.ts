@@ -3,6 +3,8 @@
  */
 
 import type { IndexChangeBatch } from "../types.ts";
+import { DRAIN_ON_QUERY_MAX_FILES, drainInbox } from "../inbox.ts";
+import { join } from "node:path";
 import {
   type Embedder,
   type VectorHealth,
@@ -138,6 +140,12 @@ export class SemanticSearchPlane {
   async query(q: string, opts: SemanticQueryOpts = {}): Promise<SemanticHit[]> {
     await this.ensureReady();
     if (!this.embedder || this.state === "disabled") return [];
+    await drainInbox(join(this.opts.searchHome, "inbox"), {
+      maxFiles: DRAIN_ON_QUERY_MAX_FILES,
+      onBatch: async (batch) => {
+        await this.applyBatch(batch);
+      },
+    });
     return this.index.semanticSearch(this.embedder, q, opts);
   }
 

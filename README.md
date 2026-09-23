@@ -92,6 +92,14 @@ host-track refresh search
 # post-install: npm install (sharp + transformers) + PATH link for search
 ```
 
+For a cold public install, use npm for the runtime dependencies. npm runs the
+native transformer dependency setup that Bun may block as an untrusted
+postinstall script.
+
+```bash
+npm ci --omit=dev --no-audit --no-fund
+```
+
 ## License
 
 MIT © 2026 Edge Vector Foundation. See [LICENSE](./LICENSE).
