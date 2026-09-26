@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-test "$(head -n 1 .last-stack/pr-venue)" = "forgejo"
+test "$(head -n 1 .last-stack/pr-venue)" = "lastgit"
 test ! -e .github/workflows
 
 grep -q "http://localhost:3300/EdgeVector/search.git" README.md
