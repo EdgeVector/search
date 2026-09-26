@@ -106,3 +106,5 @@ MIT © 2026 Edge Vector Foundation. See [LICENSE](./LICENSE).
 
 **GitHub** is a public read-only mirror (`https://github.com/EdgeVector/search`).
 Canonical source of truth: `http://localhost:3300/EdgeVector/search.git` (LastGit). Do not open merge PRs on GitHub.
+
+Source: LastGit
