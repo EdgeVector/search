@@ -9,7 +9,8 @@
         "package.json",
         "src",
         "tsconfig.json"
-      ]
+      ],
+      "platform": "darwin-arm64"
     }
   ]
 }

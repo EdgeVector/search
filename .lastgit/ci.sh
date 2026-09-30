@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# Required LastGit status gate for the first-party Search app (semantic-only).
+# Required merge gate (`ci-required`) for the first-party Search app (semantic-only).
+# Runs on GitHub Actions since 2026-09-30.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-test "$(head -n 1 .last-stack/pr-venue)" = "lastgit"
-test ! -e .github/workflows
+case "$(head -n 1 .last-stack/pr-venue)" in
+  lastgit|forgejo|github) ;;
+  *) echo "unexpected .last-stack/pr-venue" >&2; exit 1 ;;
+esac
 
-grep -q "http://localhost:3300/EdgeVector/search.git" README.md
+grep -q "https://github.com/EdgeVector/search" README.md
 grep -q "local-only and regenerable" README.md
 grep -q "not CloudSync product data" README.md
 grep -q "semantic" README.md

@@ -1,6 +1,6 @@
 # EdgeVector Search
 
-First-party **semantic** search app for LastDB (`http://localhost:3300/EdgeVector/search.git`).
+First-party **semantic** search app for LastDB (`https://github.com/EdgeVector/search`).
 
 Search owns a local regenerable **MiniLM vector index** for Brain, F-Kanban, and
 other EdgeVector apps. The LastDB kernel keeps thin contracts for durable
@@ -9,7 +9,7 @@ records and index-change outbox; it does **not** ship embeddings in default
 
 ## Product Contract
 
-- Search is a first-party app hosted from `http://localhost:3300/EdgeVector/search.git`.
+- Search is a first-party app hosted from `https://github.com/EdgeVector/search`.
 - Index data is **local-only and regenerable** from product text
   (`IndexChangeBatch` from the host).
 - Index data is **not CloudSync product data**.
@@ -104,7 +104,6 @@ npm ci --omit=dev --no-audit --no-fund
 
 MIT © 2026 Edge Vector Foundation. See [LICENSE](./LICENSE).
 
-**GitHub** is a public read-only mirror (`https://github.com/EdgeVector/search`).
-Canonical source of truth: `http://localhost:3300/EdgeVector/search.git` (LastGit). Do not open merge PRs on GitHub.
+Gate of record: GitHub (`https://github.com/EdgeVector/search`), since 2026-09-30. Open pull requests there; `ci-required` gates `main`. A push to `main` publishes the host-track artifact (`ht-artifact-<sha>`) through `EdgeVector/last-stack` `host-track-artifact.yml`.
 
-Source: LastGit
+Source: GitHub
