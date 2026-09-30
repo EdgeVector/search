@@ -1,0 +1,63 @@
+# Gate of record for EdgeVector/search (GitHub, since 2026-09-30).
+# Brain: decision-2026-09-29-retire-lastgit-all-repos-to-github,
+#        sop-github-artifact-app-migration.
+#
+# `ci-required` is the branch-protection check. It runs .lastgit/ci.sh
+# (syntax checks + bun test with the deterministic embedder, so no ONNX model
+# download in CI). `publish` runs on a push to main only, after the gate is
+# green, and uploads the host-track artifact `ht-artifact-<sha>`.
+# `host-track refresh search` on the Mac pulls it, re-checks every digest,
+# and promotes the stable channel. Dependencies install on the Mac through
+# bin/search-host-track-post-install (post_install in apps.json).
+name: ci-required
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-required-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile || bun install
+      - name: Merge gate (.lastgit/ci.sh)
+        env:
+          NO_COLOR: "1"
+          SEARCH_EMBEDDER: deterministic
+        run: bash .lastgit/ci.sh
+
+  ci-required:
+    name: ci-required
+    if: ${{ always() }}
+    needs: [test]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Every needed job succeeded
+        env:
+          RESULT: ${{ needs.test.result }}
+        run: test "$RESULT" = success
+
+  publish:
+    name: publish
+    needs: [ci-required]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    permissions:
+      contents: read
+    uses: EdgeVector/last-stack/.github/workflows/host-track-artifact.yml@main
+    # search ships as a source pack (no build step and no inputs). Deps install
+    # on the Mac via post_install. Platform comes from .lastgit/artifacts.json.
