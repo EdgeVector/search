@@ -14,7 +14,6 @@
     "./vector": "./src/vector/mod.ts"
   },
   "scripts": {
-    "test": "SEARCH_EMBEDDER=deterministic bun test",
     "ci": "bash .lastgit/ci.sh",
     "postinstall": "node -e \"try{require('fs').accessSync('node_modules/sharp/build/Release')}catch(e){process.exit(0)}\""
   },

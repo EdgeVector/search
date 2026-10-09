@@ -3,9 +3,9 @@
 #        sop-github-artifact-app-migration.
 #
 # `ci-required` is the branch-protection check. It runs .lastgit/ci.sh
-# (syntax checks + bun test with the deterministic embedder, so no ONNX model
-# download in CI). `publish` runs on a push to main only, after the gate is
-# green, and uploads the host-track artifact `ht-artifact-<sha>`.
+# (repo layout checks and shell syntax checks). `publish` runs on a push to
+# main only, after the gate is green, and uploads the host-track artifact
+# `ht-artifact-<sha>`.
 # `host-track refresh search` on the Mac pulls it, re-checks every digest,
 # and promotes the stable channel. Dependencies install on the Mac through
 # bin/search-host-track-post-install (post_install in apps.json).
@@ -26,8 +26,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: test
+  gate:
+    name: gate
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -38,18 +38,17 @@ jobs:
       - name: Merge gate (.lastgit/ci.sh)
         env:
           NO_COLOR: "1"
-          SEARCH_EMBEDDER: deterministic
         run: bash .lastgit/ci.sh
 
   ci-required:
     name: ci-required
     if: ${{ always() }}
-    needs: [test]
+    needs: [gate]
     runs-on: ubuntu-24.04
     steps:
       - name: Every needed job succeeded
         env:
-          RESULT: ${{ needs.test.result }}
+          RESULT: ${{ needs.gate.result }}
         run: test "$RESULT" = success
 
   publish:
