@@ -107,3 +107,5 @@ MIT © 2026 Edge Vector Foundation. See [LICENSE](./LICENSE).
 Gate of record: GitHub (`https://github.com/EdgeVector/search`), since 2026-09-30. Open pull requests there; `ci-required` gates `main`. A push to `main` publishes the host-track artifact (`ht-artifact-<sha>`) through `EdgeVector/last-stack` `host-track-artifact.yml`.
 
 Source: GitHub
+
+The tests are deleted (Tom, 2026-10-09). The `gate` job runs the repo layout checks and the shell syntax checks in `.lastgit/ci.sh`.
