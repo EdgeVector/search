@@ -137,7 +137,7 @@ export function overallState(opts: {
   coverage: CoverageReport;
   embedder: EmbedderBreakdown;
 }): "healthy" | "degraded" {
-  if (!opts.vectorPlaneHealthy) return "degraded";
+  if (!opts.vectorPlaneHealthy || !opts.coverage.available) return "degraded";
   if (opts.coverage.available) {
     if (opts.coverage.total.ratio !== null && opts.coverage.total.ratio < opts.coverage.floor) {
       return "degraded";

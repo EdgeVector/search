@@ -20,5 +20,6 @@ test ! -d vendor/laststore
 
 bash -n .lastgit/ci.sh
 bash -n bin/search-host-track-post-install
+bun build src/cli.ts --target=node --packages=external --outfile=bin/search-cli.mjs
 
 echo "lastgit ci gate PASSED"

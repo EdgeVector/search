@@ -8,7 +8,6 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { drainInbox, DRAIN_ON_QUERY_MAX_FILES } from "./inbox.ts";
 import { ensureSearchDirs, resolveSearchPaths } from "./paths.ts";
 import type { IndexChangeBatch } from "./types.ts";
 import {
@@ -220,11 +219,11 @@ async function main(): Promise<void> {
     // Eviction is pure deletion — do not ensureReady()/init the embedder, so
     // this never requires a neural model just to remove stale vectors.
     const session = openSearchSession({ lastDbHome: opts.lastDbHome });
-    const before = session.semantic.index.embedderBreakdown();
-    const { removed, removedIds } = session.semantic.index.evictByEmbedder(
-      (id) => id.includes(matchArg),
-    );
-    session.semantic.index.persist();
+    const { before, removed, removedIds } = await session.semantic.index.withWriter(() => {
+      const before = session.semantic.index.embedderBreakdown();
+      const result = session.semantic.index.evictByEmbedder((id) => id.includes(matchArg));
+      return { before, ...result };
+    });
     const checkpointFile =
       opts.checkpointFile ?? defaultLiveBackfillCheckpointPath(session.paths);
     let checkpointReset = false;
@@ -277,6 +276,7 @@ async function main(): Promise<void> {
         batches: files.length,
         semantic_applied: semantic,
         semantic_vectors: session.semantic.health().vectors,
+        rebuild_scope: "supplied_batch_directory_only",
       }),
     );
     return;
@@ -285,11 +285,7 @@ async function main(): Promise<void> {
   if (opts.cmd === "drain") {
     const session = openSearchSession({ lastDbHome: opts.lastDbHome });
     await session.semantic.ensureReady();
-    const r = await drainInbox(session.paths.inbox, {
-      onBatch: async (b) => {
-        await session.semantic.applyBatch(b);
-      },
-    });
+    const r = await session.semantic.drainInbox();
     console.log(
       JSON.stringify(
         {
@@ -356,7 +352,9 @@ async function main(): Promise<void> {
           vectorIndexPath: paths.vectorIndexPath,
           ...r,
           vector: session.semantic.health(),
-          note: "semantic vector plane only",
+          note: liveUrl
+            ? "Configured live source plus local batches; scope depends on the supplied source."
+            : "Local batches only; this is not a complete rebuild from LastDB.",
         },
         null,
         2,
@@ -367,12 +365,6 @@ async function main(): Promise<void> {
 
   if (opts.cmd === "semantic-query" || opts.cmd === "query") {
     const session = openSearchSession({ lastDbHome: opts.lastDbHome });
-    await drainInbox(session.paths.inbox, {
-      onBatch: async (b) => {
-        await session.semantic.applyBatch(b);
-      },
-      maxFiles: DRAIN_ON_QUERY_MAX_FILES,
-    });
     const q = opts.positionals.join(" ").trim();
     if (!q) {
       console.error("search query requires text");
@@ -407,7 +399,7 @@ async function main(): Promise<void> {
   usage();
 }
 
-main().catch((e) => {
+await main().catch((e) => {
   console.error(e);
   process.exit(1);
 });

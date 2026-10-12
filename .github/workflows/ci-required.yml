@@ -3,7 +3,7 @@
 #        sop-github-artifact-app-migration.
 #
 # `ci-required` is the branch-protection check. It runs .lastgit/ci.sh
-# (repo layout checks and shell syntax checks). `publish` runs on a push to
+# (repo layout, shell syntax, and Node CLI build checks). `publish` runs on a push to
 # main only, after the gate is green, and uploads the host-track artifact
 # `ht-artifact-<sha>`.
 # `host-track refresh search` on the Mac pulls it, re-checks every digest,

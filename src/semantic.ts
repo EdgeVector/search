@@ -6,7 +6,6 @@
  */
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { drainInbox } from "./inbox.ts";
 // readdir/readFile used for done/ batch replay only
 import {
   ensureSearchDirs,
@@ -40,6 +39,7 @@ export function openSearchSession(opts?: {
   ensureSearchDirs(paths);
   const semantic = openSemanticPlane(paths.home, {
     vectorStorePath: paths.vectorIndexPath,
+    inboxDir: paths.inbox,
     embedder: opts?.embedder,
   });
   return { paths, semantic };
@@ -73,11 +73,17 @@ export async function onlineBackfill(
   },
 ): Promise<{
   drained_files: number;
+  drain_errors: string[];
   /** Inbox files still queued when this run's drain stopped. */
   drain_remaining: number;
   /** Set when the drain stopped before emptying the inbox — run again. */
   drain_stopped?: "max_files" | "rss_ceiling" | "aborted";
   batches_replayed: number;
+  rebuild_scope: "local_batches_only" | "configured_live_source_and_local_batches";
+  legacy_archive_files: number;
+  legacy_replay_selected: number;
+  legacy_replay_errors: number;
+  live_source_completed: boolean;
   vectors: number;
   resumable: true;
   daemon_stop_required: false;
@@ -87,11 +93,7 @@ export async function onlineBackfill(
   const progress = opts?.progress;
 
   progress?.startPhase("drain-inbox");
-  const drained = await drainInbox(session.paths.inbox, {
-    onBatch: async (b) => {
-      await session.semantic.applyBatch(b, null, { skipIfFresh });
-    },
-  });
+  const drained = await session.semantic.drainInbox({ skipIfFresh });
   progress?.tick({
     phase: "drain-inbox",
     done: drained.files,
@@ -102,13 +104,18 @@ export async function onlineBackfill(
   });
 
   let batchesReplayed = 0;
+  let legacyArchiveFiles = 0;
+  let legacyReplaySelected = 0;
+  let legacyReplayErrors = 0;
   const doneDir = join(session.paths.inbox, "done");
   if (existsSync(doneDir)) {
     const max = opts?.maxDoneFiles ?? 50_000;
-    const files = readdirSync(doneDir)
+    const available = readdirSync(doneDir)
       .filter((f) => f.endsWith(".json"))
-      .sort()
-      .slice(-max);
+      .sort();
+    const files = available.slice(-max);
+    legacyArchiveFiles = available.length;
+    legacyReplaySelected = files.length;
     progress?.startPhase("replay-done", files.length);
     for (const f of files) {
       try {
@@ -118,7 +125,7 @@ export async function onlineBackfill(
         await session.semantic.applyBatch(batch, null, { skipIfFresh });
         batchesReplayed++;
       } catch {
-        /* skip corrupt */
+        legacyReplayErrors++;
       }
       progress?.tick({
         phase: "replay-done",
@@ -148,9 +155,17 @@ export async function onlineBackfill(
   );
   return {
     drained_files: drained.files,
+    drain_errors: drained.errors,
     drain_remaining: drained.remaining,
     drain_stopped: drained.stopped,
     batches_replayed: batchesReplayed,
+    rebuild_scope: opts?.liveSource
+      ? "configured_live_source_and_local_batches"
+      : "local_batches_only",
+    legacy_archive_files: legacyArchiveFiles,
+    legacy_replay_selected: legacyReplaySelected,
+    legacy_replay_errors: legacyReplayErrors,
+    live_source_completed: live?.live_completed ?? false,
     vectors: health.vectors,
     resumable: true,
     daemon_stop_required: false,
