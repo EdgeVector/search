@@ -26,6 +26,7 @@ import {
   appendFileSync,
   closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -35,6 +36,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { syncDirectory } from "../durable_fs.ts";
 
 const STORE_MAGIC = "LSV2";
 export const STORE_VERSION = 2;
@@ -151,7 +153,7 @@ function encodeOp(op: StoreOp): Buffer {
  * Decode frames from `offset`. Stops cleanly at the first truncated frame so a
  * torn tail from an interrupted append costs one record, not the whole log.
  */
-function decodeFrames(buf: Buffer, offset: number): StoreOp[] {
+function decodeFrames(buf: Buffer, offset: number, strict = false): StoreOp[] {
   const ops: StoreOp[] = [];
   let at = offset;
   while (at + 9 <= buf.length) {
@@ -197,6 +199,9 @@ function decodeFrames(buf: Buffer, offset: number): StoreOp[] {
     }
     at = end;
   }
+  if (strict && at !== buf.length) {
+    throw new Error("Vector store has an incomplete or invalid frame");
+  }
   return ops;
 }
 
@@ -235,10 +240,12 @@ export function writeSnapshot(
       writeFileSync(fd, frame);
       bytesWritten += frame.length;
     }
+    fsyncSync(fd);
   } finally {
     closeSync(fd);
   }
   renameSync(tmp, path);
+  syncDirectory(dirname(path));
 }
 
 export function appendOps(
@@ -249,11 +256,33 @@ export function appendOps(
   if (ops.length === 0) return;
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const parts: Buffer[] = [];
-  if (!existsSync(path)) parts.push(encodeHeader(header));
+  const created = !existsSync(path);
+  if (created) parts.push(encodeHeader(header));
   for (const op of ops) parts.push(encodeOp(op));
   const buf = Buffer.concat(parts);
-  appendFileSync(path, buf, { mode: 0o600 });
+  const fd = openSync(path, "a", 0o600);
+  try {
+    appendFileSync(fd, buf);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  if (created) syncDirectory(dirname(path));
   bytesWritten += buf.length;
+}
+
+/** Establish a flush barrier for files loaded from an older writer version. */
+export function syncStoreFiles(paths: StorePaths): void {
+  for (const path of [paths.snapshot, paths.log, paths.legacyJson]) {
+    if (!existsSync(path)) continue;
+    const fd = openSync(path, "r");
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  }
+  syncDirectory(dirname(paths.snapshot));
 }
 
 export function fileSize(path: string): number {
@@ -266,7 +295,10 @@ export function fileSize(path: string): number {
 
 export function removeIfPresent(path: string): void {
   try {
-    if (existsSync(path)) unlinkSync(path);
+    if (existsSync(path)) {
+      unlinkSync(path);
+      syncDirectory(dirname(path));
+    }
   } catch {
     /* best effort */
   }
@@ -280,17 +312,21 @@ export type LoadedStore = {
 };
 
 /** Read a v2 file (snapshot or log) into ops. Missing/corrupt reads as empty. */
-function readV2(path: string): { header: StoreHeader | null; ops: StoreOp[] } {
+function readV2(path: string, strict = false): { header: StoreHeader | null; ops: StoreOp[] } {
   if (!existsSync(path)) return { header: null, ops: [] };
   let buf: Buffer;
   try {
     buf = readFileSync(path);
-  } catch {
+  } catch (e) {
+    if (strict) throw e;
     return { header: null, ops: [] };
   }
   const head = decodeHeader(buf);
-  if (!head) return { header: null, ops: [] };
-  return { header: head.header, ops: decodeFrames(buf, head.offset) };
+  if (!head) {
+    if (strict) throw new Error(`Cannot read vector store header: ${path}`);
+    return { header: null, ops: [] };
+  }
+  return { header: head.header, ops: decodeFrames(buf, head.offset, strict) };
 }
 
 type LegacySnapshot = {
@@ -304,9 +340,10 @@ type LegacySnapshot = {
  * Load the durable store: v2 snapshot then log replay, falling back to the
  * legacy v1 JSON so an existing index migrates instead of forcing a re-embed.
  */
-export function loadStore(paths: StorePaths): LoadedStore {
-  const snap = readV2(paths.snapshot);
-  const log = readV2(paths.log);
+export function loadStore(paths: StorePaths, opts?: { strict?: boolean }): LoadedStore {
+  const strict = opts?.strict ?? false;
+  const snap = readV2(paths.snapshot, strict);
+  const log = readV2(paths.log, strict);
   // A young index has a log and no snapshot yet — compaction has not run. The
   // log alone is then the whole durable state, so it must be read on its own.
   if (snap.header || log.header) {
@@ -325,6 +362,7 @@ export function loadStore(paths: StorePaths): LoadedStore {
       readFileSync(paths.legacyJson, "utf8"),
     ) as LegacySnapshot;
     if (!Array.isArray(legacy.records)) {
+      if (strict) throw new Error("Cannot read legacy vector store records");
       return { header: null, ops: [], migratedFromLegacy: false };
     }
     return {
@@ -336,7 +374,8 @@ export function loadStore(paths: StorePaths): LoadedStore {
       ops: legacy.records.map((rec) => ({ op: "upsert" as const, rec })),
       migratedFromLegacy: true,
     };
-  } catch {
+  } catch (e) {
+    if (strict) throw e;
     return { header: null, ops: [], migratedFromLegacy: false };
   }
 }

@@ -26,6 +26,7 @@ import {
 
 export type SemanticPlaneOptions = {
   searchHome: string;
+  inboxDir?: string;
   vectorStorePath?: string;
   /** Inject embedder (tests). */
   embedder?: Embedder;
@@ -96,13 +97,20 @@ export class SemanticSearchPlane {
     };
   }
 
-  async applyBatch(
+  private async readyWriter(): Promise<Embedder> {
+    await this.ensureReady();
+    if (!this.embedder || this.state !== "healthy") {
+      throw new Error(`Cannot write Search batch: ${this.detail || this.state}`);
+    }
+    return this.embedder;
+  }
+
+  private async writeBatch(
+    embedder: Embedder,
     batch: IndexChangeBatch,
     classifications?: FieldClassifications | null,
     opts?: { skipIfFresh?: boolean },
   ): Promise<number> {
-    await this.ensureReady();
-    if (!this.embedder || this.state === "disabled") return 0;
     let n = 0;
     for (const ch of batch.changes) {
       if (ch.kind === "tombstone") {
@@ -120,7 +128,7 @@ export class SemanticSearchPlane {
       );
       const text = fieldsToIndexText(fields);
       const action = await this.index.indexText(
-        this.embedder,
+        embedder,
         {
           schema_name: batch.schema_name,
           key_hash: ch.key_value.hash,
@@ -133,19 +141,42 @@ export class SemanticSearchPlane {
       );
       if (action !== "removed") n++;
     }
-    this.index.persist();
     return n;
+  }
+
+  async applyBatch(
+    batch: IndexChangeBatch,
+    classifications?: FieldClassifications | null,
+    opts?: { skipIfFresh?: boolean },
+  ): Promise<number> {
+    const embedder = await this.readyWriter();
+    return this.index.withWriter(() =>
+      this.writeBatch(embedder, batch, classifications, opts)
+    );
+  }
+
+  /** Keep the writer boundary through durable request removal. */
+  async drainInbox(
+    opts?: Omit<Parameters<typeof drainInbox>[1], "onBatch"> & {
+      skipIfFresh?: boolean;
+    },
+  ): Promise<Awaited<ReturnType<typeof drainInbox>>> {
+    const embedder = await this.readyWriter();
+    return this.index.withWriter(() =>
+      drainInbox(this.opts.inboxDir ?? join(this.opts.searchHome, "inbox"), {
+        ...opts,
+        onBatch: async (batch) => {
+          await this.writeBatch(embedder, batch, null, opts);
+          this.index.persist();
+        },
+      })
+    );
   }
 
   async query(q: string, opts: SemanticQueryOpts = {}): Promise<SemanticHit[]> {
     await this.ensureReady();
     if (!this.embedder || this.state === "disabled") return [];
-    await drainInbox(join(this.opts.searchHome, "inbox"), {
-      maxFiles: DRAIN_ON_QUERY_MAX_FILES,
-      onBatch: async (batch) => {
-        await this.applyBatch(batch);
-      },
-    });
+    await this.drainInbox({ maxFiles: DRAIN_ON_QUERY_MAX_FILES });
     return this.index.semanticSearch(this.embedder, q, opts);
   }
 
@@ -187,57 +218,59 @@ export class SemanticSearchPlane {
     flushes: number;
   }> {
     await this.ensureReady();
-    if (!this.embedder) {
-      return { embedded: 0, skipped: 0, removed: 0, flushes: 0 };
+    if (!this.embedder || this.state !== "healthy") {
+      throw new Error(`Cannot backfill Search: ${this.detail || this.state}`);
     }
-    const skipIfFresh = opts?.force ? false : (opts?.skipIfFresh ?? true);
-    const flushEvery = Math.max(1, opts?.flushEvery ?? 50);
-    const total = docs.length;
-    let embedded = 0;
-    let skipped = 0;
-    let removed = 0;
-    let flushes = 0;
-    let sinceFlush = 0;
-    let done = 0;
-    for (const d of docs) {
-      if (!d.text.trim()) {
+    return this.index.withWriter(async () => {
+      const skipIfFresh = opts?.force ? false : (opts?.skipIfFresh ?? true);
+      const flushEvery = Math.max(1, opts?.flushEvery ?? 50);
+      const total = docs.length;
+      let embedded = 0;
+      let skipped = 0;
+      let removed = 0;
+      let flushes = 0;
+      let sinceFlush = 0;
+      let done = 0;
+      for (const d of docs) {
+        if (!d.text.trim()) {
+          done++;
+          opts?.onProgress?.({ done, total, embedded, skipped, flushes });
+          continue;
+        }
+        const action = await this.index.indexText(
+          this.embedder!,
+          {
+            schema_name: d.schema_name,
+            key_hash: d.key_hash,
+            key_range: d.key_range,
+            text: d.text,
+            mutation_id: d.mutation_id,
+          },
+          { skipIfFresh },
+        );
+        if (action === "skipped") {
+          skipped++;
+        } else if (action === "removed") {
+          removed++;
+        } else {
+          embedded++;
+          sinceFlush++;
+          if (sinceFlush >= flushEvery) {
+            this.index.persist();
+            flushes++;
+            sinceFlush = 0;
+          }
+        }
         done++;
         opts?.onProgress?.({ done, total, embedded, skipped, flushes });
-        continue;
       }
-      const action = await this.index.indexText(
-        this.embedder,
-        {
-          schema_name: d.schema_name,
-          key_hash: d.key_hash,
-          key_range: d.key_range,
-          text: d.text,
-          mutation_id: d.mutation_id,
-        },
-        { skipIfFresh },
-      );
-      if (action === "skipped") {
-        skipped++;
-      } else if (action === "removed") {
-        removed++;
-      } else {
-        embedded++;
-        sinceFlush++;
-        if (sinceFlush >= flushEvery) {
-          this.index.persist();
-          flushes++;
-          sinceFlush = 0;
-        }
+      if (sinceFlush > 0) {
+        this.index.persist();
+        flushes++;
       }
-      done++;
       opts?.onProgress?.({ done, total, embedded, skipped, flushes });
-    }
-    if (sinceFlush > 0) {
-      this.index.persist();
-      flushes++;
-    }
-    opts?.onProgress?.({ done, total, embedded, skipped, flushes });
-    return { embedded, skipped, removed, flushes };
+      return { embedded, skipped, removed, flushes };
+    });
   }
 }
 

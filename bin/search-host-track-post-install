@@ -20,31 +20,32 @@ if command -v bun >/dev/null 2>&1; then
   bun install --dev 2>/dev/null || true
 fi
 
-mkdir -p "$ROOT/bin"
-if [ ! -x "$ROOT/bin/search" ]; then
-  printf '%s\n' '#!/usr/bin/env bun' 'import "../src/cli.ts";' > "$ROOT/bin/search"
-  chmod +x "$ROOT/bin/search"
+# Bundle local TypeScript for Node; neural native code runs under Node as well.
+if ! command -v bun >/dev/null 2>&1; then
+  echo "search-host-track-post-install: Bun is required to build the Node CLI" >&2
+  exit 127
 fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "search-host-track-post-install: Node is required to run Search" >&2
+  exit 127
+fi
+bun build src/cli.ts --target=node --packages=external --outfile=bin/search-cli.mjs
 
-# Optional neural smoke (skip with SEARCH_SKIP_NEURAL_SMOKE=1).
-if [ "${SEARCH_SKIP_NEURAL_SMOKE:-0}" != "1" ] && command -v bun >/dev/null 2>&1; then
-  if SEARCH_EMBEDDER=fastembed bun -e '
-    import { createDefaultEmbedder } from "./src/vector/fastembed.ts";
-    const r = await createDefaultEmbedder();
-    if (!r.neural) {
-      console.error("neural smoke failed:", r.healthDetail);
+# Optional native-model deployment check. Keep the existing skip control.
+if [ "${SEARCH_SKIP_NEURAL_SMOKE:-0}" != "1" ]; then
+  if node --input-type=module -e '
+    import { pipeline } from "@xenova/transformers";
+    const embed = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
+    const result = await embed("Search initialization", { pooling: "mean", normalize: true });
+    if (result.data.length !== 384) {
+      console.error("bad dimensions", result.data.length);
       process.exit(1);
     }
-    const [v] = await r.embedder.embed(["search neural smoke"]);
-    if (!v || v.length !== 384) {
-      console.error("bad dims", v?.length);
-      process.exit(1);
-    }
-    console.log("search-host-track-post-install: neural MiniLM OK (384-d)");
-  ' 2>&1; then
+    console.log("search-host-track-post-install: neural MiniLM ready (384 dimensions)");
+  '; then
     :
   else
-    echo "search-host-track-post-install: WARN neural smoke failed" >&2
+    echo "search-host-track-post-install: WARN neural model initialization failed" >&2
   fi
 fi
 

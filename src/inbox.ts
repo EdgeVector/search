@@ -9,12 +9,12 @@ import {
   existsSync,
   readdirSync,
   readFileSync,
-  renameSync,
-  mkdirSync,
+  unlinkSync,
   statSync,
 } from "node:fs";
 import { join } from "node:path";
 import type { IndexChangeBatch } from "./types.ts";
+import { syncDirectory } from "./durable_fs.ts";
 
 export type InboxStatus = {
   pending_files: number;
@@ -86,8 +86,8 @@ function isBatch(x: unknown): x is IndexChangeBatch {
 }
 
 type DrainOptions = {
-  /** Called for each valid batch before the file moves to done/. */
-  onBatch?: (batch: IndexChangeBatch) => void | Promise<void>;
+  /** Must return only after the batch changes are durably flushed. */
+  onBatch: (batch: IndexChangeBatch) => void | Promise<void>;
   /** Stop after this many files. Default DEFAULT_MAX_FILES; 0 means unlimited. */
   maxFiles?: number;
   /** Stop when RSS exceeds this. Default DEFAULT_MAX_RSS_BYTES; 0 disables. */
@@ -99,7 +99,8 @@ type DrainOptions = {
 };
 
 /**
- * Drain inbox: parse each batch JSON, invoke onBatch, move to done/.
+ * Drain inbox: parse a batch, await its durable write, then remove the request.
+ * Failed or invalid requests stay pending. Existing done/ archives are untouched.
  * Change count = number of change rows across applied batches.
  *
  * Bounded by design — see DEFAULT_MAX_FILES. A caller that wants the whole
@@ -108,7 +109,7 @@ type DrainOptions = {
  */
 export async function drainInbox(
   inboxDir: string,
-  opts?: DrainOptions,
+  opts: DrainOptions,
 ): Promise<DrainResult> {
   const result: DrainResult = {
     files: 0,
@@ -117,12 +118,13 @@ export async function drainInbox(
     remaining: 0,
   };
   if (!existsSync(inboxDir)) return result;
-  const doneDir = join(inboxDir, "done");
-  if (!existsSync(doneDir)) mkdirSync(doneDir, { recursive: true, mode: 0o700 });
+  if (typeof opts.onBatch !== "function") {
+    throw new Error("Inbox drain requires a durable batch writer");
+  }
 
-  const maxFiles = opts?.maxFiles ?? DEFAULT_MAX_FILES;
-  const maxRss = opts?.maxRssBytes ?? DEFAULT_MAX_RSS_BYTES;
-  const rss = opts?.rss ?? (() => process.memoryUsage().rss);
+  const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
+  const maxRss = opts.maxRssBytes ?? DEFAULT_MAX_RSS_BYTES;
+  const rss = opts.rss ?? (() => process.memoryUsage().rss);
 
   const all = readdirSync(inboxDir)
     .filter((f) => f.endsWith(".json") && !f.startsWith("."))
@@ -131,7 +133,7 @@ export async function drainInbox(
   let stopped: DrainResult["stopped"];
 
   for (const name of files) {
-    if (opts?.shouldStop?.()) {
+    if (opts.shouldStop?.()) {
       stopped = "aborted";
       break;
     }
@@ -140,21 +142,24 @@ export async function drainInbox(
       break;
     }
     const path = join(inboxDir, name);
+    let raw: unknown;
     try {
-      const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
-      if (!isBatch(raw)) {
-        result.errors.push(`${name}: not an IndexChangeBatch`);
-        continue;
-      }
-      result.changes += raw.changes.length;
-      if (opts?.onBatch) await opts.onBatch(raw);
-      result.files++;
-      renameSync(path, join(doneDir, name));
-    } catch (e) {
-      result.errors.push(
-        `${name}: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    } catch {
+      result.errors.push(`${name}: cannot read batch JSON`);
+      continue;
     }
+    if (!isBatch(raw)) {
+      result.errors.push(`${name}: not an IndexChangeBatch`);
+      continue;
+    }
+    // Writer failures must leave this boundary. A partial write must not be
+    // followed by another append or by a successful request removal.
+    await opts.onBatch(raw);
+    unlinkSync(path);
+    result.files++;
+    result.changes += raw.changes.length;
+    syncDirectory(inboxDir);
   }
 
   if (!stopped && files.length < all.length) stopped = "max_files";

@@ -12,6 +12,8 @@
  */
 
 import { dirname, join } from "node:path";
+import { statSync } from "node:fs";
+import { acquireWriterLock } from "./writer.ts";
 import { cosine, type Embedder } from "./embedder.ts";
 import { isProductionSearchHome } from "../paths.ts";
 import {
@@ -20,6 +22,7 @@ import {
   loadStore,
   removeIfPresent,
   storePaths,
+  syncStoreFiles,
   writeSnapshot,
   STORE_VERSION,
   type StoreOp,
@@ -82,6 +85,9 @@ export class VectorIndex {
   private dirty = new Set<string>();
   /** Ids removed since the last flush. */
   private removed = new Set<string>();
+  private writerHeld = false;
+  private writerStamp: string | null = null;
+  private needsLegacyMigration = false;
   readonly storePath: string;
   readonly paths: StorePaths;
   /** Search home used only for the production-write guard below, not I/O. */
@@ -94,6 +100,45 @@ export class VectorIndex {
     this.paths = storePaths(storePath);
     this.searchHome = searchHome ?? dirname(storePath);
     this.load();
+  }
+
+  /** Reload under the exclusive writer lock, then flush before releasing it. */
+  async withWriter<T>(operation: () => T | Promise<T>): Promise<T> {
+    if (this.writerHeld) {
+      throw new Error("Search writer is already active in this session");
+    }
+    const release = acquireWriterLock(`${this.paths.snapshot}.writer.lock`);
+    this.writerHeld = true;
+    try {
+      const current = this.storeStamp();
+      if (this.writerStamp === null || current !== this.writerStamp) {
+        this.load(true);
+        syncStoreFiles(this.paths);
+      }
+      const result = await operation();
+      this.persist();
+      this.writerStamp = this.storeStamp();
+      return result;
+    } catch (e) {
+      this.writerStamp = null;
+      throw e;
+    } finally {
+      this.writerHeld = false;
+      release();
+    }
+  }
+
+  private storeStamp(): string {
+    const paths = [this.paths.snapshot, this.paths.log, this.paths.legacyJson];
+    return JSON.stringify(paths.map((path) => {
+      try {
+        const stat = statSync(path);
+        return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs];
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw e;
+      }
+    }));
   }
 
   get size(): number {
@@ -393,6 +438,14 @@ export class VectorIndex {
    * past COMPACT_RATIO of the snapshot. Cost is O(changed), not O(index).
    */
   persist(): void {
+    if (!this.writerHeld) throw new Error("Search persist requires withWriter");
+    if (this.needsLegacyMigration) {
+      this.compact();
+      this.needsLegacyMigration = false;
+      this.dirty.clear();
+      this.removed.clear();
+      return;
+    }
     if (this.dirty.size === 0 && this.removed.size === 0) return;
 
     const ops: StoreOp[] = [];
@@ -418,15 +471,18 @@ export class VectorIndex {
    * so peak memory does not scale with snapshot size.
    */
   compact(): void {
+    if (!this.writerHeld) throw new Error("Search compaction requires withWriter");
     writeSnapshot(this.paths.snapshot, this.header(), this.records.values());
     removeIfPresent(this.paths.log);
   }
 
-  private load(): void {
-    const loaded = loadStore(this.paths);
-    if (!loaded.header && loaded.ops.length === 0) return;
-
+  private load(strict = false): void {
+    const loaded = loadStore(this.paths, { strict });
     this.clear();
+    this.embedderId = "";
+    this.dimensions = 0;
+    this.needsLegacyMigration = loaded.migratedFromLegacy;
+    if (!loaded.header && loaded.ops.length === 0) return;
     for (const op of loaded.ops) {
       if (op.op === "upsert") this.upsert(op.rec);
       else {
@@ -447,8 +503,7 @@ export class VectorIndex {
     this.dirty.clear();
     this.removed.clear();
 
-    // A legacy v1 index becomes a v2 snapshot once, so the next flush is cheap.
-    if (loaded.migratedFromLegacy) this.compact();
+    // Legacy migration is deferred until the next exclusive writer boundary.
   }
 }
 
