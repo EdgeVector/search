@@ -78,8 +78,9 @@ A process interruption can leave this lock in place. The lock has no automatic
 expiry. Check its recorded process before an explicit owner recovery action.
 Long lived consumers must reload Search code before this lock protects all writers.
 No LastDB restart is required.
-The CLI uses Node for the native model runtime. Host-track post-install builds
-the CLI with Bun. Package library exports stay compatible.
+The CLI uses Node for the native model runtime. The package `postinstall` builds
+the CLI bundle with Bun (`bun run build`), so every install path creates it.
+Package library exports stay compatible.
 
 Library users who write directly through `VectorIndex` must use `withWriter`.
 `persist` and `compact` reject calls outside that write boundary.
@@ -129,12 +130,13 @@ postinstall script.
 
 ```bash
 npm ci --omit=dev --no-audit --no-fund
-bun build src/cli.ts --target=node --packages=external --outfile=bin/search-cli.mjs
+# the package postinstall runs: bun run build  (writes the ignored bin/search-cli.mjs)
 ```
 
 The cold CLI install needs Bun for the build and Node for the runtime.
-The package post-install alone does not create the ignored CLI bundle.
-The supported host-track post-install performs both steps.
+The package `postinstall` creates the ignored CLI bundle, so a source install
+through host-track, the app registry, `bun install`, or `npm ci` all produce it.
+The host-track post-install runs the same build again.
 
 ## License
 
