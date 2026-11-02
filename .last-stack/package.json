@@ -1,0 +1,17 @@
+{
+  "artifacts": [
+    {
+      "app": "search",
+      "paths": [
+        "LICENSE",
+        "README.md",
+        "bin",
+        "package.json",
+        "src",
+        "tsconfig.json",
+        "lastdb-app.json"
+      ],
+      "platform": "darwin-arm64"
+    }
+  ]
+}
