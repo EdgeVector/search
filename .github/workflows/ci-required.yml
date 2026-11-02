@@ -4,11 +4,11 @@
 #
 # `ci-required` is the branch-protection check. It runs .lastgit/ci.sh
 # (repo layout, shell syntax, and Node CLI build checks). `publish` runs on a push to
-# main only, after the gate is green, and uploads the host-track artifact
+# main only, after the gate is green, and uploads the app registry artifact
 # `ht-artifact-<sha>`.
-# `host-track refresh search` on the Mac pulls it, re-checks every digest,
+# `app registry refresh search` on the Mac pulls it, re-checks every digest,
 # and promotes the stable channel. Dependencies install on the Mac through
-# bin/search-host-track-post-install (post_install in apps.json).
+# bin/search-app registry-post-install (post_install in apps.json).
 name: ci-required
 
 on:
@@ -50,16 +50,6 @@ jobs:
         env:
           RESULT: ${{ needs.gate.result }}
         run: test "$RESULT" = success
-
-  publish:
-    name: publish
-    needs: [ci-required]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    permissions:
-      contents: read
-    uses: EdgeVector/last-stack/.github/workflows/host-track-artifact.yml@main
-    # search ships as a source pack (no build step and no inputs). Deps install
-    # on the Mac via post_install. Platform comes from .lastgit/artifacts.json.
 
   registry-commit:
     name: Registry commit identity
