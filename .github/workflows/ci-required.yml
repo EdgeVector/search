@@ -51,16 +51,6 @@ jobs:
           RESULT: ${{ needs.gate.result }}
         run: test "$RESULT" = success
 
-  publish:
-    name: publish
-    needs: [ci-required]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    permissions:
-      contents: read
-    uses: EdgeVector/last-stack/.github/workflows/registry-app-package.yml@main
-    # search ships as a source pack (no build step and no inputs). Deps install
-    # on the Mac via post_install. Platform comes from .lastgit/artifacts.json.
-
   registry-commit:
     name: Registry commit identity
     needs: [ci-required]
