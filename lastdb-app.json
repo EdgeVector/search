@@ -35,12 +35,19 @@
         "argv": [
           "./bin/search"
         ],
+        "timeout_s": 20,
         "accept_exit": [
           0,
           1,
           2
+        ]
+      },
+      {
+        "argv": [
+          "./bin/search",
+          "status"
         ],
-        "timeout_s": 30
+        "timeout_s": 25
       }
     ],
     "links": [
