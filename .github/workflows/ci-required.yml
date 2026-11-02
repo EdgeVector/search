@@ -60,3 +60,17 @@ jobs:
     uses: EdgeVector/last-stack/.github/workflows/host-track-artifact.yml@main
     # search ships as a source pack (no build step and no inputs). Deps install
     # on the Mac via post_install. Platform comes from .lastgit/artifacts.json.
+
+  registry-commit:
+    name: Registry commit identity
+    needs: [ci-required]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 scripts/registry-commit.py

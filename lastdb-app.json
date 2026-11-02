@@ -1,0 +1,55 @@
+{
+  "app_id": "search",
+  "version": "0.2.0",
+  "source": "https://github.com/EdgeVector/search.git",
+  "metadata": {
+    "display_name": "search",
+    "description": "LastDB Search app \u2014 semantic MiniLM plane outside Mini (local regenerable vector index)",
+    "homepage_url": "https://github.com/EdgeVector/search"
+  },
+  "run": {
+    "runtime": "command",
+    "entrypoint": "bin/search"
+  },
+  "schemas": [],
+  "install": {
+    "prepare": [
+      {
+        "argv": [
+          "npm",
+          "ci"
+        ],
+        "timeout_s": 300
+      },
+      {
+        "argv": [
+          "npm",
+          "run",
+          "build"
+        ],
+        "timeout_s": 120
+      }
+    ],
+    "probe": [
+      {
+        "argv": [
+          "./bin/search"
+        ],
+        "accept_exit": [
+          0,
+          1,
+          2
+        ],
+        "timeout_s": 30
+      }
+    ],
+    "links": [
+      {
+        "source": "bin/search",
+        "command": "search"
+      }
+    ],
+    "post_install": [],
+    "requires": []
+  }
+}

@@ -120,7 +120,7 @@ npx tsc --noEmit --allowImportingTsExtensions
 ## Host-track install
 
 ```bash
-host-track refresh search
+lastdb app upgrade search
 # post-install: native dependencies + Node CLI bundle + PATH link for search
 ```
 
