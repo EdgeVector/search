@@ -1,6 +1,7 @@
 {
   "app_id": "search",
   "version": "0.2.0",
+  "outbox_format_version": 1,
   "source": "https://github.com/EdgeVector/search.git",
   "metadata": {
     "display_name": "search",
