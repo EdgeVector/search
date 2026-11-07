@@ -122,7 +122,7 @@ export class SemanticSearchPlane {
         continue;
       }
       const fields = selectIndexableFields(
-        ch.fields_and_values,
+        ch.record_fields ?? ch.fields_and_values,
         batch.searchable_fields,
         classifications,
       );

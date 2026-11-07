@@ -14,6 +14,8 @@ export type IndexChange = {
   mutation_id: string;
   kind: IndexChangeKind;
   key_value: KeyValue;
+  record_fields?: Record<string, unknown>;
+  /** Previous spelling in durable outbox batches. */
   fields_and_values?: Record<string, unknown>;
 };
 
