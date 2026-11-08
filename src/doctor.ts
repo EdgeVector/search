@@ -1,12 +1,6 @@
 import { existsSync } from "node:fs";
 import { inboxStatus } from "./inbox.ts";
 import { MINILM_L6_V2_DIMS, MINILM_L6_V2_ID } from "./vector/embedder.ts";
-import {
-  createHttpLiveBackfillSource,
-  defaultLiveBackfillCheckpointPath,
-  readLiveBackfillCheckpoint,
-  type LiveBackfillSource,
-} from "./live_backfill.ts";
 import { openSearchSession, type SearchSession } from "./semantic.ts";
 
 type DoctorLevel = "ok" | "warn" | "error" | "skipped";
@@ -51,9 +45,6 @@ function configured(env: Record<string, string | undefined>, names: string[]) {
 export async function runSearchDoctor(opts?: {
   session?: SearchSession;
   lastDbHome?: string;
-  liveUrl?: string;
-  liveSource?: LiveBackfillSource;
-  checkpointFile?: string;
   env?: Record<string, string | undefined>;
   now?: () => Date;
 }): Promise<SearchDoctorReport> {
@@ -104,84 +95,17 @@ export async function runSearchDoctor(opts?: {
     next_action:
       vector.vectors > 0
         ? undefined
-        : "Run search bootstrap --live-url <lastdb search backfill endpoint> to seed vectors online.",
+        : "Run search init (or search drain) to apply queued IndexChangeBatch requests.",
     detail: {
       path: session.paths.vectorIndexPath,
-      exists: existsSync(session.paths.vectorIndexPath),
+      exists:
+        existsSync(session.semantic.index.paths.snapshot) ||
+        existsSync(session.semantic.index.paths.log),
       vectors: vector.vectors,
       embedder_id: vector.embedder_id,
       dimensions: vector.dimensions,
     },
   });
-
-  const checkpointFile =
-    opts?.checkpointFile ?? defaultLiveBackfillCheckpointPath(session.paths);
-  const checkpoint = readLiveBackfillCheckpoint(checkpointFile);
-  checks.push({
-    name: "online_backfill",
-    level: checkpoint
-      ? checkpoint.completed
-        ? "ok"
-        : "warn"
-      : "warn",
-    summary: checkpoint
-      ? checkpoint.completed
-        ? "Online backfill checkpoint is complete"
-        : "Online backfill checkpoint is in progress"
-      : "Online backfill has not checkpointed yet",
-    next_action:
-      checkpoint?.completed === true
-        ? undefined
-        : "Run search bootstrap to start or resume online backfill; offline rebuild is disaster-only.",
-    detail: {
-      checkpoint_file: checkpointFile,
-      checkpoint,
-    },
-  });
-
-  const liveSource =
-    opts?.liveSource ??
-    ((opts?.liveUrl ?? env.SEARCH_LIVE_BACKFILL_URL)?.trim()
-      ? createHttpLiveBackfillSource({
-          url: (opts?.liveUrl ?? env.SEARCH_LIVE_BACKFILL_URL)!.trim(),
-        })
-      : undefined);
-  if (liveSource) {
-    try {
-      const page = await liveSource.listPage({ cursor: null, limit: 1 });
-      checks.push({
-        name: "lastdb_live_backfill",
-        level: "ok",
-        summary: "Live LastDB backfill endpoint is reachable",
-        detail: {
-          source: liveSource.id ?? opts?.liveUrl ?? "live",
-          sample_records: page.records.length,
-          next_cursor: page.next_cursor ?? null,
-          total: page.total ?? null,
-        },
-      });
-    } catch (e) {
-      checks.push({
-        name: "lastdb_live_backfill",
-        level: "error",
-        summary: "Live LastDB backfill endpoint is unavailable",
-        next_action:
-          "Verify lastdbd is running and pass the correct --live-url or SEARCH_LIVE_BACKFILL_URL.",
-        detail: {
-          source: liveSource.id ?? opts?.liveUrl ?? "live",
-          error: e instanceof Error ? e.message : String(e),
-        },
-      });
-    }
-  } else {
-    checks.push({
-      name: "lastdb_live_backfill",
-      level: "skipped",
-      summary: "No live backfill endpoint configured",
-      next_action:
-        "Set SEARCH_LIVE_BACKFILL_URL or pass --live-url to validate and run online bootstrap.",
-    });
-  }
 
   const brainVars = configured(env, [
     "BRAIN_SEARCH_URL",

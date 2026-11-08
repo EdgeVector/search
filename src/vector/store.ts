@@ -68,8 +68,6 @@ export type StoreHeader = {
 
 /** Snapshot and log paths derived from the caller's store path. */
 export type StorePaths = {
-  /** Legacy whole-file JSON snapshot, read once for migration. */
-  legacyJson: string;
   snapshot: string;
   log: string;
 };
@@ -77,7 +75,6 @@ export type StorePaths = {
 export function storePaths(storePath: string): StorePaths {
   const base = storePath.replace(/\.v1\.json$/, "").replace(/\.json$/, "");
   return {
-    legacyJson: storePath,
     snapshot: `${base}.v2.bin`,
     log: `${base}.v2.log`,
   };
@@ -273,7 +270,7 @@ export function appendOps(
 
 /** Establish a flush barrier for files loaded from an older writer version. */
 export function syncStoreFiles(paths: StorePaths): void {
-  for (const path of [paths.snapshot, paths.log, paths.legacyJson]) {
+  for (const path of [paths.snapshot, paths.log]) {
     if (!existsSync(path)) continue;
     const fd = openSync(path, "r");
     try {
@@ -307,8 +304,6 @@ export function removeIfPresent(path: string): void {
 export type LoadedStore = {
   header: StoreHeader | null;
   ops: StoreOp[];
-  /** True when records came from the legacy v1 JSON and want a v2 snapshot. */
-  migratedFromLegacy: boolean;
 };
 
 /** Read a v2 file (snapshot or log) into ops. Missing/corrupt reads as empty. */
@@ -329,16 +324,9 @@ function readV2(path: string, strict = false): { header: StoreHeader | null; ops
   return { header: head.header, ops: decodeFrames(buf, head.offset, strict) };
 }
 
-type LegacySnapshot = {
-  version: number;
-  embedder_id: string;
-  dimensions: number;
-  records: StoreRecord[];
-};
-
 /**
- * Load the durable store: v2 snapshot then log replay, falling back to the
- * legacy v1 JSON so an existing index migrates instead of forcing a re-embed.
+ * Load the durable store: v2 snapshot, then log replay.
+ * A missing snapshot and log is an empty store.
  */
 export function loadStore(paths: StorePaths, opts?: { strict?: boolean }): LoadedStore {
   const strict = opts?.strict ?? false;
@@ -350,32 +338,7 @@ export function loadStore(paths: StorePaths, opts?: { strict?: boolean }): Loade
     return {
       header: snap.header ?? log.header,
       ops: [...snap.ops, ...log.ops],
-      migratedFromLegacy: false,
     };
   }
-
-  if (!existsSync(paths.legacyJson)) {
-    return { header: null, ops: [], migratedFromLegacy: false };
-  }
-  try {
-    const legacy = JSON.parse(
-      readFileSync(paths.legacyJson, "utf8"),
-    ) as LegacySnapshot;
-    if (!Array.isArray(legacy.records)) {
-      if (strict) throw new Error("Cannot read legacy vector store records");
-      return { header: null, ops: [], migratedFromLegacy: false };
-    }
-    return {
-      header: {
-        version: STORE_VERSION,
-        embedder_id: legacy.embedder_id ?? "",
-        dimensions: legacy.dimensions ?? 0,
-      },
-      ops: legacy.records.map((rec) => ({ op: "upsert" as const, rec })),
-      migratedFromLegacy: true,
-    };
-  } catch (e) {
-    if (strict) throw e;
-    return { header: null, ops: [], migratedFromLegacy: false };
-  }
+  return { header: null, ops: [] };
 }

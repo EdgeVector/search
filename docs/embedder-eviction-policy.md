@@ -34,16 +34,13 @@ general one (any future embedder change).
 
 1. **Evict.** Run `search reindex-embedder <old-embedder-id-substring>`
    against the target index home. This deletes every vector whose
-   `embedder_id` matches, persists the index, and (unless
-   `--keep-checkpoint` is passed) removes the online-backfill checkpoint so
-   the next backfill treats those records as needing embedding again rather
-   than skipping them as "already fresh."
-2. **Reindex.** Run `search bootstrap` (or wait for the scheduled
-   drain/backfill routine). This replays `inbox/done/*.json` batches and any
-   configured live source; records with no vector are no longer "fresh," so
-   they re-embed under whichever embedder the running process resolves via
-   `SEARCH_EMBEDDER` (production default: FastEmbed/`all-MiniLM-L6-v2`
-   neural).
+   `embedder_id` matches and persists the index.
+2. **Reindex.** Re-deliver the records into the Search inbox, then run
+   `search init` or `search drain` until the inbox is empty. Records with
+   no vector are no longer fresh, so the drain embeds them again with
+   FastEmbed `all-MiniLM-L6-v2`.
+   `lastdb admin search-rebuild` writes that inbox from a stopped home.
+   Stopping the primary needs Tom.
 3. **Verify.** `search status` reports `embedder` (via
    `embedderBreakdown()`/`computeEmbedderBreakdown`) — confirm it shows a
    single `embedder_id` and the vector count has recovered.

@@ -100,7 +100,7 @@ type DrainOptions = {
 
 /**
  * Drain inbox: parse a batch, await its durable write, then remove the request.
- * Failed or invalid requests stay pending. Existing done/ archives are untouched.
+ * Failed or invalid requests stay pending.
  * Change count = number of change rows across applied batches.
  *
  * Bounded by design — see DEFAULT_MAX_FILES. A caller that wants the whole

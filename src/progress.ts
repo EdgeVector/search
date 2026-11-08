@@ -1,5 +1,5 @@
 /**
- * Human progress for long search init / online-backfill runs.
+ * Human progress for a long search init run.
  * Always writes to stderr so stdout stays JSON for scripts.
  */
 
@@ -7,9 +7,6 @@ type ProgressTick = {
   phase: string;
   done: number;
   total: number;
-  embedded?: number;
-  skipped?: number;
-  flushes?: number;
   detail?: string;
 };
 
@@ -109,11 +106,8 @@ export function createProgressReporter(opts: ProgressOpts = {}): ProgressReporte
       const elapsed = Date.now() - phaseStart;
       const pct =
         t.total > 0 ? `${Math.min(100, Math.floor((100 * t.done) / t.total))}%` : "";
-      const emb = t.embedded != null ? ` emb=${t.embedded}` : "";
-      const sk = t.skipped != null ? ` skip=${t.skipped}` : "";
-      const fl = t.flushes != null ? ` flush=${t.flushes}` : "";
       const detail = t.detail ? ` ${t.detail}` : "";
-      const body = `${t.phase} ${bar(t.done, t.total)} ${t.done}/${t.total || "?"} ${pct}${emb}${sk}${fl} ${fmtRate(t.done, elapsed)} ${fmtEta(t.done, t.total, elapsed)}${detail}`;
+      const body = `${t.phase} ${bar(t.done, t.total)} ${t.done}/${t.total || "?"} ${pct} ${fmtRate(t.done, elapsed)} ${fmtEta(t.done, t.total, elapsed)}${detail}`;
       // Always paint first/last tick of a phase so short runs aren't silent.
       const force = t.done === 0 || (t.total > 0 && t.done >= t.total);
       if (useBar) writeBar(body, force);
