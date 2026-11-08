@@ -7,7 +7,8 @@ import { homedir } from "node:os";
  *
  * Default layout under a LastDB Mini home:
  *   {LASTDB_HOME}/apps/search/inbox/              — IndexChangeBatch JSON from host
- *   {LASTDB_HOME}/apps/search/vector-index.v1.json — MiniLM vector snapshot
+ *   {LASTDB_HOME}/apps/search/vector-index.v1.json — base name; the store files
+ *     are vector-index.v2.bin and vector-index.v2.log
  *
  * Override with SEARCH_HOME, SEARCH_INBOX, SEARCH_VECTOR_INDEX.
  */

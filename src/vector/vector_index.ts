@@ -87,7 +87,6 @@ export class VectorIndex {
   private removed = new Set<string>();
   private writerHeld = false;
   private writerStamp: string | null = null;
-  private needsLegacyMigration = false;
   readonly storePath: string;
   readonly paths: StorePaths;
   /** Search home used only for the production-write guard below, not I/O. */
@@ -129,7 +128,7 @@ export class VectorIndex {
   }
 
   private storeStamp(): string {
-    const paths = [this.paths.snapshot, this.paths.log, this.paths.legacyJson];
+    const paths = [this.paths.snapshot, this.paths.log];
     return JSON.stringify(paths.map((path) => {
       try {
         const stat = statSync(path);
@@ -325,7 +324,7 @@ export class VectorIndex {
 
   /**
    * True when an existing vector is still valid for this text/mutation under
-   * the same embedder — used so online-backfill can skip re-embedding.
+   * the same embedder — used so an inbox drain can skip re-embedding.
    */
   isFresh(
     embedder: Embedder,
@@ -439,13 +438,6 @@ export class VectorIndex {
    */
   persist(): void {
     if (!this.writerHeld) throw new Error("Search persist requires withWriter");
-    if (this.needsLegacyMigration) {
-      this.compact();
-      this.needsLegacyMigration = false;
-      this.dirty.clear();
-      this.removed.clear();
-      return;
-    }
     if (this.dirty.size === 0 && this.removed.size === 0) return;
 
     const ops: StoreOp[] = [];
@@ -481,7 +473,6 @@ export class VectorIndex {
     this.clear();
     this.embedderId = "";
     this.dimensions = 0;
-    this.needsLegacyMigration = loaded.migratedFromLegacy;
     if (!loaded.header && loaded.ops.length === 0) return;
     for (const op of loaded.ops) {
       if (op.op === "upsert") this.upsert(op.rec);
@@ -502,8 +493,6 @@ export class VectorIndex {
     // Replaying is not a change: nothing above needs writing back.
     this.dirty.clear();
     this.removed.clear();
-
-    // Legacy migration is deferred until the next exclusive writer boundary.
   }
 }
 

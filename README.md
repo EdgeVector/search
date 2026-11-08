@@ -14,15 +14,14 @@ records and index-change outbox; it does **not** ship embeddings in default
   (`IndexChangeBatch` from the host).
 - Index data is **not CloudSync product data**.
 - Default embedder: **Xenova/all-MiniLM-L6-v2** (384-d) via `@xenova/transformers`.
-- A full rebuild needs product text from a compatible live source or exported batches.
-  `search init` alone uses local pending requests and the legacy archive.
+- A full rebuild needs product text re-delivered into the inbox.
+  `search init` drains local pending requests.
   It does not prove a complete rebuild from LastDB.
 
 ## Layout (under Mini home)
 
 ```text
 {LASTDB_HOME}/apps/search/inbox/                 # pending IndexChangeBatch requests
-{LASTDB_HOME}/apps/search/inbox/done/            # optional legacy replay archive
 {LASTDB_HOME}/apps/search/vector-index.v2.bin     # semantic vector snapshot
 {LASTDB_HOME}/apps/search/vector-index.v2.log     # vector changes since the snapshot
 ```
@@ -33,29 +32,25 @@ Override: `SEARCH_HOME`, `SEARCH_INBOX`, `SEARCH_VECTOR_INDEX`,
 ## CLI
 
 ```bash
-search init [--force] [--quiet]     # local pending requests + legacy batch replay
-search bootstrap --live-url URL    # backfill from a compatible live source
-search doctor [--live-url URL]      # scriptable readiness/config report
+search init [--force] [--quiet]     # drain local pending requests
 search drain                        # apply inbox batches to vectors
 search query "meaning query" --json # semantic k-NN (alias: semantic-query)
 search apply --file batch.json
 search rebuild --batches-dir ./batches
-search online-backfill
+search bootstrap                    # alias of init
+search online-backfill              # alias of init
+search doctor                       # scriptable readiness report
 search status | vector-status
 ```
 
-`search init` / `online-backfill` are **resumable** (skip fresh vectors; flush
-every N embeds). Final JSON is on **stdout**; progress bar on **stderr**.
-`search bootstrap` is the named online install path and uses the same resumable
-engine. `search doctor --strict` exits non-zero only when a required check such
-as the model or live endpoint is degraded; an empty index or missing checkpoint
-is reported with a next action.
+`search init`, `search bootstrap`, and `search online-backfill` drain the inbox.
+They are resumable: a vector that is already fresh is skipped.
+Final JSON is on stdout; the progress bar is on stderr.
+`search doctor --strict` exits non-zero when a required check such as the model
+is degraded. An empty index is reported with a next action.
 
-Use `--live-url` or `SEARCH_LIVE_BACKFILL_URL` only with a compatible live source.
-The source must return current product records and a cursor.
-Search does not supply this endpoint, and a LastDB install does not imply one exists.
-The result reports `rebuild_scope`, the legacy replay counts, and `live_source_completed`.
-A completed cursor describes the supplied source, not every LastDB schema.
+The result reports `rebuild_scope` `local_batches_only`.
+`search init` is not a complete rebuild from LastDB.
 
 Client config checks report `BRAIN_SEARCH_URL` and
 `FKANBAN_SEARCH_URL` (or shared `SEARCH_HTTP_URL`) so brain and fkanban install
@@ -64,9 +59,6 @@ a recovery path for the supplied batch directory. It does not read LastDB itself
 
 Search deletes a completed inbox request after the vector file and its directory
 pass a durable flush. Invalid requests and failed writes stay pending.
-Search does not create new `inbox/done` files. Existing archive files remain
-available for legacy replay. The default newest 50,000 files is a replay limit.
-It is not a retention rule or proof of a complete rebuild.
 A process interruption before request removal can cause a repeat of the request.
 The durable vector data stays on disk.
 

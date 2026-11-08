@@ -17,11 +17,6 @@ import {
   semanticQuery,
 } from "./semantic.ts";
 import { createProgressReporter } from "./progress.ts";
-import {
-  createHttpLiveBackfillSource,
-  defaultLiveBackfillCheckpointPath,
-} from "./live_backfill.ts";
-import { removeIfPresent } from "./vector/store.ts";
 import { runSearchDoctor } from "./doctor.ts";
 import { inboxStatus } from "./inbox.ts";
 import { defaultCorpusCountSource } from "./vector/corpus_counts.ts";
@@ -33,16 +28,16 @@ import {
 
 function usage(): never {
   console.error(`usage:
-  search init [--last-db-home DIR] [--max-done N] [--flush-every N] [--force] [--quiet]
+  search init [--last-db-home DIR] [--force] [--quiet]
   search drain [--last-db-home DIR]
   search query <text> [--k N] [--schema S]... [--exact] [--min-score F] [--json] [--last-db-home DIR]
   search semantic-query <text> ...   # alias of query
   search apply --file <batch.json> [--last-db-home DIR]
   search rebuild --batches-dir DIR [--last-db-home DIR]
-  search reindex-embedder <embedder-id-substring> [--last-db-home DIR] [--checkpoint-file FILE] [--keep-checkpoint] [--json]
-  search doctor [--last-db-home DIR] [--live-url URL] [--checkpoint-file FILE] [--strict]
-  search bootstrap [--last-db-home DIR] [--max-done N] [--live-url URL] [--live-page-size N] [--checkpoint-file FILE] [--flush-every N] [--force] [--quiet]
-  search online-backfill [--last-db-home DIR] [--max-done N] [--live-url URL] [--live-page-size N] [--checkpoint-file FILE] [--flush-every N] [--force] [--quiet]
+  search reindex-embedder <embedder-id-substring> [--last-db-home DIR] [--json]
+  search doctor [--last-db-home DIR] [--strict]
+  search bootstrap [--last-db-home DIR] [--force] [--quiet]
+  search online-backfill [--last-db-home DIR] [--force] [--quiet]
   search status | vector-status [--last-db-home DIR]
 
   Semantic vector plane only (all-MiniLM-L6-v2).
@@ -62,15 +57,9 @@ function parseArgs(argv: string[]) {
   let json = false;
   let exact = false;
   let minScore: number | undefined;
-  let maxDone: number | undefined;
-  let flushEvery: number | undefined;
-  let liveUrl: string | undefined;
-  let livePageSize: number | undefined;
-  let checkpointFile: string | undefined;
   let force = false;
   let quiet = false;
   let strict = false;
-  let keepCheckpoint = false;
   const schemas: string[] = [];
   const positionals: string[] = [];
   for (let i = 0; i < rest.length; i++) {
@@ -91,24 +80,12 @@ function parseArgs(argv: string[]) {
       exact = true;
     } else if (a === "--min-score") {
       minScore = Number(rest[++i]);
-    } else if (a === "--max-done") {
-      maxDone = Number(rest[++i]);
-    } else if (a === "--live-url" || a === "--backfill-url") {
-      liveUrl = rest[++i];
-    } else if (a === "--live-page-size" || a === "--page-size") {
-      livePageSize = Number(rest[++i]);
-    } else if (a === "--checkpoint-file") {
-      checkpointFile = rest[++i];
-    } else if (a === "--flush-every") {
-      flushEvery = Number(rest[++i]);
     } else if (a === "--force") {
       force = true;
     } else if (a === "--quiet" || a === "-q") {
       quiet = true;
     } else if (a === "--strict") {
       strict = true;
-    } else if (a === "--keep-checkpoint") {
-      keepCheckpoint = true;
     } else if (a.startsWith("-")) {
       console.error(`unknown flag ${a}`);
       usage();
@@ -125,15 +102,9 @@ function parseArgs(argv: string[]) {
     json,
     exact,
     minScore,
-    maxDone,
-    flushEvery,
-    liveUrl,
-    livePageSize,
-    checkpointFile,
     force,
     quiet,
     strict,
-    keepCheckpoint,
     schemas,
     positionals,
   };
@@ -200,8 +171,6 @@ async function main(): Promise<void> {
   if (opts.cmd === "doctor") {
     const report = await runSearchDoctor({
       lastDbHome: opts.lastDbHome,
-      liveUrl: opts.liveUrl,
-      checkpointFile: opts.checkpointFile,
     });
     console.log(JSON.stringify(report, null, 2));
     if (opts.strict && !report.ok) process.exit(1);
@@ -224,13 +193,6 @@ async function main(): Promise<void> {
       const result = session.semantic.index.evictByEmbedder((id) => id.includes(matchArg));
       return { before, ...result };
     });
-    const checkpointFile =
-      opts.checkpointFile ?? defaultLiveBackfillCheckpointPath(session.paths);
-    let checkpointReset = false;
-    if (!opts.keepCheckpoint) {
-      removeIfPresent(checkpointFile);
-      checkpointReset = true;
-    }
     console.log(
       JSON.stringify(
         {
@@ -240,11 +202,7 @@ async function main(): Promise<void> {
           removed_ids: opts.json ? removedIds : undefined,
           embedder_breakdown_before: before,
           embedder_breakdown_after: session.semantic.index.embedderBreakdown(),
-          checkpoint_file: checkpointFile,
-          checkpoint_reset: checkpointReset,
-          note: checkpointReset
-            ? "Run `search bootstrap` (or wait for the scheduled drain/backfill) to reembed the evicted records under the current embedder."
-            : "Checkpoint kept — evicted records will only reembed once their source batches replay or the checkpoint is reset.",
+          note: "Re-deliver the evicted records into the inbox, then run `search init` or `search drain` to embed them again.",
         },
         null,
         2,
@@ -330,16 +288,8 @@ async function main(): Promise<void> {
     const session = openSearchSession({ lastDbHome: opts.lastDbHome });
     progress.startPhase("embedder-ready");
     await session.semantic.ensureReady();
-    const liveUrl = opts.liveUrl ?? process.env.SEARCH_LIVE_BACKFILL_URL;
     const r = await onlineBackfill(session, {
-      maxDoneFiles: opts.maxDone,
       force: opts.force,
-      flushEvery: opts.flushEvery,
-      liveSource: liveUrl
-        ? createHttpLiveBackfillSource({ url: liveUrl })
-        : undefined,
-      livePageLimit: opts.livePageSize,
-      liveCheckpointFile: opts.checkpointFile,
       progress,
     });
     console.log(
@@ -352,9 +302,7 @@ async function main(): Promise<void> {
           vectorIndexPath: paths.vectorIndexPath,
           ...r,
           vector: session.semantic.health(),
-          note: liveUrl
-            ? "Configured live source plus local batches; scope depends on the supplied source."
-            : "Local batches only; this is not a complete rebuild from LastDB.",
+          note: "Local batches only; this is not a complete rebuild from LastDB.",
         },
         null,
         2,
