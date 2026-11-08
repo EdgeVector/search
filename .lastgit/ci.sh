@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 case "$(head -n 1 .last-stack/pr-venue)" in
-  lastgit|forgejo|github) ;;
+  github) ;;
   *) echo "unexpected .last-stack/pr-venue" >&2; exit 1 ;;
 esac
 
@@ -19,7 +19,6 @@ test ! -d crates
 test ! -d vendor/laststore
 
 bash -n .lastgit/ci.sh
-bash -n bin/search-registry-prepare
 bun build src/cli.ts --target=node --packages=external --outfile=bin/search-cli.mjs
 
-echo "lastgit ci gate PASSED"
+echo "search ci gate PASSED"

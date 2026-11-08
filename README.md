@@ -27,7 +27,7 @@ records and index-change outbox; it does **not** ship embeddings in default
 ```
 
 Override: `SEARCH_HOME`, `SEARCH_INBOX`, `SEARCH_VECTOR_INDEX`,
-`SEARCH_EMBEDDER=fastembed|deterministic`, `TRANSFORMERS_CACHE`.
+`TRANSFORMERS_CACHE`.
 
 ## CLI
 
@@ -52,10 +52,8 @@ is degraded. An empty index is reported with a next action.
 The result reports `rebuild_scope` `local_batches_only`.
 `search init` is not a complete rebuild from LastDB.
 
-Client config checks report `BRAIN_SEARCH_URL` and
-`FKANBAN_SEARCH_URL` (or shared `SEARCH_HTTP_URL`) so brain and fkanban install
-issues are visible in one report. Offline `search rebuild --batches-dir` remains
-a recovery path for the supplied batch directory. It does not read LastDB itself.
+Offline `search rebuild --batches-dir` remains a recovery path for the
+supplied batch directory. It does not read LastDB itself.
 
 Search deletes a completed inbox request after the vector file and its directory
 pass a durable flush. Invalid requests and failed writes stay pending.
@@ -80,13 +78,12 @@ Library users who write directly through `VectorIndex` must use `withWriter`.
 `search status` / `vector-status` report a machine-readable `state`
 (`healthy` | `degraded`) driven by coverage, not just index consistency:
 per-schema `vectors held / source records available` (from the LastDB schema
-catalog, scoped by default to `SEARCH_COVERAGE_APPS=brain,fbrain,fkanban,kanban`
+catalog, scoped by default to `SEARCH_COVERAGE_APPS=brain,fkanban,kanban`
 — override to track other apps), an inbox `pending_files` / oldest-batch-age
-signal, and an `embedder` breakdown that flags any nonzero
-`+deterministic`-suffixed vector share. `state` goes `degraded` when total or
+signal, and an `embedder` breakdown. `state` goes `degraded` when total or
 any single schema's coverage falls under the floor (`SEARCH_COVERAGE_FLOOR`,
-default `0.95`), when a schema with source records holds zero vectors, or when
-deterministic vectors are present at all. Set `SEARCH_LASTDB_SOCKET` (default
+default `0.95`), or when a schema with source records holds zero vectors.
+Set `SEARCH_LASTDB_SOCKET` (default
 `~/.lastdb/data/folddb.sock`) or `SEARCH_LASTDB_API_URL` to point coverage at a
 non-default LastDB node; catalog-unreachable reports `coverage.available:
 false` (unknown, not zero), and the overall state stays `degraded` until this check succeeds.
@@ -109,11 +106,10 @@ const hits = await semanticQuery(session, "query", { k: 10 });
 npx tsc --noEmit --allowImportingTsExtensions
 ```
 
-## Host-track install
+## Install
 
 ```bash
 lastdb app upgrade search
-# post-install: native dependencies + Node CLI bundle + PATH link for search
 ```
 
 For a cold public install, use npm for the runtime dependencies. npm runs the
@@ -127,14 +123,13 @@ npm ci --omit=dev --no-audit --no-fund
 
 The cold CLI install needs Bun for the build and Node for the runtime.
 The package `postinstall` creates the ignored CLI bundle, so a source install
-through host-track, the app registry, `bun install`, or `npm ci` all produce it.
-The host-track post-install runs the same build again.
+through the app registry, `bun install`, or `npm ci` produces it.
 
 ## License
 
 MIT © 2026 Edge Vector Foundation. See [LICENSE](./LICENSE).
 
-Gate of record: GitHub (`https://github.com/EdgeVector/search`), since 2026-09-30. Open pull requests there; `ci-required` gates `main`. A push to `main` publishes the host-track artifact (`ht-artifact-<sha>`) through `EdgeVector/last-stack` `host-track-artifact.yml`.
+Gate of record: GitHub (`https://github.com/EdgeVector/search`), since 2026-09-30. Open pull requests there; `ci-required` gates `main`.
 
 Source: GitHub
 

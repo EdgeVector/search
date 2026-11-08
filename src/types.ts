@@ -1,6 +1,6 @@
 /**
  * Wire types for Search ingest — aligned with fold_db IndexChangeBatch
- * (native_index/sink.rs). Semantic vector index is regenerable local state.
+ * (search_index/sink.rs). Semantic vector index is regenerable local state.
  */
 
 export type IndexChangeKind = "upsert" | "tombstone";

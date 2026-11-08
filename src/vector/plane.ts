@@ -11,7 +11,6 @@ import {
   type VectorHealthState,
 } from "./embedder.ts";
 import { createDefaultEmbedder } from "./fastembed.ts";
-import { isProductionSearchHome } from "../paths.ts";
 import {
   fieldsToIndexText,
   selectIndexableFields,
@@ -44,7 +43,7 @@ export class SemanticSearchPlane {
   constructor(private readonly opts: SemanticPlaneOptions) {
     const path =
       opts.vectorStorePath ?? defaultVectorStorePath(opts.searchHome);
-    this.index = new VectorIndex(path, opts.searchHome);
+    this.index = new VectorIndex(path);
     if (opts.embedder) {
       this.embedder = opts.embedder;
       this.state = "healthy";
@@ -64,14 +63,6 @@ export class SemanticSearchPlane {
     try {
       if (!this.embedder) {
         const created = await createDefaultEmbedder();
-        if (!created.neural && isProductionSearchHome(this.opts.searchHome)) {
-          throw new Error(
-            `Refusing non-neural (${created.embedder.id}) embedder for the production Search ` +
-              `index home (${this.opts.searchHome}). Fix the neural embedder init (npm install so ` +
-              `sharp's native binary installs) — deterministic embeddings are test/CI-only and ` +
-              `point SEARCH_HOME at a temp dir for tests.`,
-          );
-        }
         this.embedder = created.embedder;
         this.detail = created.healthDetail;
       }
@@ -81,8 +72,7 @@ export class SemanticSearchPlane {
     } catch (e) {
       this.state = "degraded";
       this.detail = e instanceof Error ? e.message : String(e);
-      // Loud on purpose: a silently swallowed init failure is how deterministic
-      // vectors reached production before (auto-fallback with no console output).
+      // A swallowed init failure would leave the plane degraded with no operator signal.
       console.error(`[search] semantic plane degraded: ${this.detail}`);
     }
   }

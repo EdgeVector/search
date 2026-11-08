@@ -38,10 +38,6 @@ function addNextActions(checks: DoctorCheck[]): string[] {
   ];
 }
 
-function configured(env: Record<string, string | undefined>, names: string[]) {
-  return names.filter((name) => (env[name] ?? "").trim().length > 0);
-}
-
 export async function runSearchDoctor(opts?: {
   session?: SearchSession;
   lastDbHome?: string;
@@ -63,7 +59,7 @@ export async function runSearchDoctor(opts?: {
   const modelOk =
     vector.state === "healthy" &&
     typeof vector.embedder_id === "string" &&
-    vector.embedder_id.startsWith(MINILM_L6_V2_ID) &&
+    vector.embedder_id === MINILM_L6_V2_ID &&
     vector.dimensions === MINILM_L6_V2_DIMS;
   checks.push({
     name: "fastembed_model",
@@ -73,7 +69,7 @@ export async function runSearchDoctor(opts?: {
       : "FastEmbed-compatible model is not ready",
     next_action: modelOk
       ? undefined
-      : "Run npm install in the Search install root, then retry search doctor. Use SEARCH_EMBEDDER=deterministic only for tests.",
+      : "Run npm install in the Search install root, then retry search doctor.",
     detail: {
       expected_embedder_id: MINILM_L6_V2_ID,
       expected_dimensions: MINILM_L6_V2_DIMS,
@@ -104,33 +100,6 @@ export async function runSearchDoctor(opts?: {
       vectors: vector.vectors,
       embedder_id: vector.embedder_id,
       dimensions: vector.dimensions,
-    },
-  });
-
-  const brainVars = configured(env, [
-    "BRAIN_SEARCH_URL",
-    "BRAIN_SEARCH_ENDPOINT",
-    "SEARCH_HTTP_URL",
-  ]);
-  const fkanbanVars = configured(env, [
-    "FKANBAN_SEARCH_URL",
-    "FKANBAN_SEARCH_ENDPOINT",
-    "SEARCH_HTTP_URL",
-  ]);
-  checks.push({
-    name: "client_config",
-    level: brainVars.length > 0 && fkanbanVars.length > 0 ? "ok" : "warn",
-    summary:
-      brainVars.length > 0 && fkanbanVars.length > 0
-        ? "Brain and fkanban Search endpoints are configured"
-        : "One or more Search client endpoint variables are unset",
-    next_action:
-      brainVars.length > 0 && fkanbanVars.length > 0
-        ? undefined
-        : "Configure BRAIN_SEARCH_URL and FKANBAN_SEARCH_URL, or SEARCH_HTTP_URL for both clients.",
-    detail: {
-      brain_configured: brainVars,
-      fkanban_configured: fkanbanVars,
     },
   });
 

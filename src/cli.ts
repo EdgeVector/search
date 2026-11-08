@@ -145,7 +145,6 @@ async function main(): Promise<void> {
     const state = overallState({
       vectorPlaneHealthy: vector.state === "healthy",
       coverage,
-      embedder,
     });
 
     console.log(
@@ -181,7 +180,7 @@ async function main(): Promise<void> {
     const matchArg = opts.positionals[0];
     if (!matchArg) {
       console.error(
-        "search reindex-embedder requires an embedder_id substring to evict, e.g. +deterministic",
+        "search reindex-embedder requires an embedder_id substring to evict, e.g. all-MiniLM-L6-v2",
       );
       process.exit(2);
     }

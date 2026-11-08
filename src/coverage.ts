@@ -12,14 +12,14 @@ export const DEFAULT_COVERAGE_FLOOR = 0.95;
 
 /**
  * Only these apps currently push IndexChangeBatch traffic into Search's
- * inbox (see BRAIN_SEARCH_URL / FKANBAN_SEARCH_URL in doctor.ts). Every
+ * inbox. Every
  * other app in the LastDB schema catalog — lastgit, dogfood-graph, remote,
  * starter-seed fixtures, etc. — was never wired to feed Search at all, so a
  * schema sitting at 0 vectors there is "not integrated," not "starved."
  * Scoring those as degraded would drown the real signal in noise from apps
  * this tool has no way to affect. Override with SEARCH_COVERAGE_APPS.
  */
-const DEFAULT_TRACKED_APP_IDS = ["brain", "fbrain", "fkanban", "kanban"];
+const DEFAULT_TRACKED_APP_IDS = ["brain", "fkanban", "kanban"];
 
 type SchemaCoverage = {
   schema_name: string;
@@ -46,9 +46,7 @@ export type CoverageReport = {
 
 export type EmbedderBreakdown = {
   by_embedder_id: Record<string, number>;
-  deterministic_vectors: number;
   total_vectors: number;
-  deterministic_share: number | null;
 };
 
 /** Coverage over the corpus the kernel reports counts for. `null` counts
@@ -113,17 +111,11 @@ export function computeCoverage(
 export function computeEmbedderBreakdown(
   byEmbedderId: Record<string, number>,
 ): EmbedderBreakdown {
-  let deterministic = 0;
   let total = 0;
-  for (const [id, n] of Object.entries(byEmbedderId)) {
-    total += n;
-    if (id.includes("+deterministic")) deterministic += n;
-  }
+  for (const n of Object.values(byEmbedderId)) total += n;
   return {
     by_embedder_id: byEmbedderId,
-    deterministic_vectors: deterministic,
     total_vectors: total,
-    deterministic_share: total > 0 ? deterministic / total : null,
   };
 }
 
@@ -135,18 +127,11 @@ export function computeEmbedderBreakdown(
 export function overallState(opts: {
   vectorPlaneHealthy: boolean;
   coverage: CoverageReport;
-  embedder: EmbedderBreakdown;
 }): "healthy" | "degraded" {
   if (!opts.vectorPlaneHealthy || !opts.coverage.available) return "degraded";
-  if (opts.coverage.available) {
-    if (opts.coverage.total.ratio !== null && opts.coverage.total.ratio < opts.coverage.floor) {
-      return "degraded";
-    }
-    if (opts.coverage.degraded_schemas.length > 0) return "degraded";
+  if (opts.coverage.total.ratio !== null && opts.coverage.total.ratio < opts.coverage.floor) {
+    return "degraded";
   }
-  // A nonzero deterministic share means the neural embedder is silently
-  // unavailable in a live run — the vectors that exist are not the ones
-  // production search expects.
-  if ((opts.embedder.deterministic_share ?? 0) > 0) return "degraded";
+  if (opts.coverage.degraded_schemas.length > 0) return "degraded";
   return "healthy";
 }

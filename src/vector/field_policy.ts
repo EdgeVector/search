@@ -1,5 +1,5 @@
 /**
- * Field policy for Search indexing — mirrors fold native_index classifications.
+ * Field policy for Search indexing — mirrors lastdb search_index classifications.
  * A field is searchable when classified `word` and not `secret` / `no_index`.
  */
 

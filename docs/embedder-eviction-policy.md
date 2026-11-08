@@ -10,25 +10,11 @@ happens to be shaped like a score.
 `VectorIndex.indexText()` refuses any write whose `embedder_id` differs from
 an `embedder_id` already present in the index (see
 `src/vector/vector_index.ts`). This is enforced at write time, not warned
-about, and it cannot be routed around by env config — the same shape of guard
-already existed for the deterministic-into-production case
-(`search-deterministic-embedder-must-not-reach-production-index`); this
-generalizes it to any embedder swap, not just the deterministic one.
+about.
 
 This means: **you cannot incrementally roll a new embedder into a
 production index.** The first write under the new `embedder_id` throws until
 every vector under the old `embedder_id` is gone.
-
-## How 2,981 deterministic vectors reached production once
-
-See `search-deterministic-embedder-must-not-reach-production-index` for the
-provenance writeup. The short version: nothing structurally prevented a
-deterministic-embedder write from landing in the real index home, so a
-config/init-failure edge case (silently falling back, or an explicit
-`SEARCH_ALLOW_DETERMINISTIC=1`) mixed 2,981 lexical-hash vectors into an
-11,012-vector MiniLM index. This invariant, plus the earlier
-production-home guard, close both the specific hole (deterministic) and the
-general one (any future embedder change).
 
 ## The procedure for a deliberate embedder change
 
@@ -51,7 +37,6 @@ correct instead of two.
 
 ## Why not warn-and-continue
 
-A warning is silent once nobody is watching the logs — that is exactly how
-the original 2,981 deterministic vectors sat undetected in production. Once
-an index can be provably single-embedder, keeping it that way at write time
-is cheaper than re-auditing it later.
+A warning is silent once nobody is watching the logs. Once an index can be
+provably single-embedder, keeping it that way at write time is cheaper than
+re-auditing it later.
