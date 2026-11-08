@@ -2,9 +2,7 @@
  * Local all-MiniLM-L6-v2 embedder (real neural model).
  *
  * Production default: `@xenova/transformers` ONNX pipeline
- * `Xenova/all-MiniLM-L6-v2` (384-d, mean-pool, L2-normalized) — same family as
- * fold FastEmbed. Deterministic embedder is **tests/CI only**
- * (`SEARCH_EMBEDDER=deterministic`).
+ * `Xenova/all-MiniLM-L6-v2` (384-d, mean-pool, L2-normalized).
  */
 
 import {
@@ -13,7 +11,6 @@ import {
   MINILM_L6_V2_DIMS,
   MINILM_L6_V2_ID,
 } from "./embedder.ts";
-import { DeterministicMiniLmCompatEmbedder } from "./deterministic.ts";
 
 type FeaturePipeline = (
   text: string,
@@ -58,7 +55,7 @@ export class FastEmbedEmbedder implements Embedder {
       throw new Error(
         `Search neural embedder failed to load (all-MiniLM-L6-v2 via @xenova/transformers): ${this.initError}\n` +
           `Fix: from the Search install root run \`npm install\` (not bun-only) so sharp's native binary installs, ` +
-          `then retry. For offline unit tests only: SEARCH_EMBEDDER=deterministic.`,
+          `then retry.`,
       );
     }
   }
@@ -91,51 +88,11 @@ export class FastEmbedEmbedder implements Embedder {
 export async function createDefaultEmbedder(): Promise<{
   embedder: Embedder;
   healthDetail: string;
-  neural: boolean;
 }> {
-  // Production default is real MiniLM. Deterministic is explicit opt-in for CI/tests.
-  const mode = (process.env.SEARCH_EMBEDDER ?? "fastembed").trim().toLowerCase();
-  if (mode === "deterministic" || mode === "mock") {
-    return {
-      embedder: new DeterministicMiniLmCompatEmbedder(),
-      healthDetail: "deterministic MiniLM-compatible embedder (tests/CI only)",
-      neural: false,
-    };
-  }
-
-  // fastembed | auto | neural | real → neural path
-  if (
-    mode === "fastembed" ||
-    mode === "auto" ||
-    mode === "neural" ||
-    mode === "real" ||
-    mode === "minilm"
-  ) {
-    const fe = new FastEmbedEmbedder();
-    try {
-      await fe.init();
-    } catch (e) {
-      // auto may fall back only when explicitly allowed (legacy / constrained envs).
-      if (
-        mode === "auto" &&
-        process.env.SEARCH_ALLOW_DETERMINISTIC === "1"
-      ) {
-        return {
-          embedder: new DeterministicMiniLmCompatEmbedder(),
-          healthDetail: `auto: neural unavailable (${e instanceof Error ? e.message : e}); deterministic`,
-          neural: false,
-        };
-      }
-      throw e;
-    }
-    return {
-      embedder: fe,
-      healthDetail: "FastEmbed/Xenova all-MiniLM-L6-v2 (neural, 384-d)",
-      neural: true,
-    };
-  }
-
-  throw new Error(
-    `Unknown SEARCH_EMBEDDER=${mode} (use fastembed|auto|deterministic)`,
-  );
+  const fe = new FastEmbedEmbedder();
+  await fe.init();
+  return {
+    embedder: fe,
+    healthDetail: "FastEmbed/Xenova all-MiniLM-L6-v2 (neural, 384-d)",
+  };
 }

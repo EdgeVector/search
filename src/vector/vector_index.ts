@@ -11,11 +11,10 @@
  * machine on 2026-08-07.
  */
 
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { statSync } from "node:fs";
 import { acquireWriterLock } from "./writer.ts";
 import { cosine, type Embedder } from "./embedder.ts";
-import { isProductionSearchHome } from "../paths.ts";
 import {
   appendOps,
   fileSize,
@@ -89,15 +88,12 @@ export class VectorIndex {
   private writerStamp: string | null = null;
   readonly storePath: string;
   readonly paths: StorePaths;
-  /** Search home used only for the production-write guard below, not I/O. */
-  readonly searchHome: string;
   embedderId = "";
   dimensions = 0;
 
-  constructor(storePath: string, searchHome?: string) {
+  constructor(storePath: string) {
     this.storePath = storePath;
     this.paths = storePaths(storePath);
-    this.searchHome = searchHome ?? dirname(storePath);
     this.load();
   }
 
@@ -151,9 +147,7 @@ export class VectorIndex {
     return out;
   }
 
-  /** Vector count per embedder_id, e.g. distinguishing real neural runs from
-   * the `+deterministic` compat embedder that must never carry production
-   * coverage (see field_policy note on deterministic vectors). */
+  /** Vector count per embedder_id. */
   embedderBreakdown(): Record<string, number> {
     const out: Record<string, number> = {};
     for (const [id, n] of this.embedderCounts) out[id] = n;
@@ -392,14 +386,6 @@ export class VectorIndex {
           `A single index must hold exactly one embedder's vectors — evict the stale embedder ` +
           `(VectorIndex.evictByEmbedder / \`search reindex-embedder\`) and let the drainer reembed ` +
           `before switching embedders on this index.`,
-      );
-    }
-    if (embedder.id.includes("+deterministic") && isProductionSearchHome(this.searchHome)) {
-      throw new Error(
-        `Refusing to write a deterministic vector (embedder_id=${embedder.id}) into the ` +
-          `production Search index home (${this.searchHome}). Deterministic embeddings are ` +
-          `test/CI-only; this check is independent of SEARCH_EMBEDDER/SEARCH_ALLOW_DETERMINISTIC ` +
-          `so it cannot be routed around by env config.`,
       );
     }
     const [vec] = await embedder.embed([text]);

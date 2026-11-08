@@ -1,6 +1,6 @@
 /**
  * Embedder contract for the Search semantic plane.
- * Production default model identity matches fold FastEmbed: all-MiniLM-L6-v2 (384-d).
+ * Production default model identity is all-MiniLM-L6-v2 (384-d).
  */
 
 export const MINILM_L6_V2_ID = "all-MiniLM-L6-v2";

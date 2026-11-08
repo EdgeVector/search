@@ -1,6 +1,6 @@
 /**
  * Drain host-written IndexChangeBatch JSON files from the Search inbox.
- * Fold writes one JSON object per file under apps/search/inbox/.
+ * LastDB writes one JSON object per file under apps/search/inbox/.
  *
  * Drain applies batches via `onBatch` (semantic vector plane).
  */
